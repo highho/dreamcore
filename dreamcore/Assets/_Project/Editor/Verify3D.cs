@@ -208,6 +208,153 @@ namespace Dreamcore.EditorTools
         }
 
         /// <summary>
+        /// Task 3 验收口：解析器 AnomalyResolver.Resolve 对既有 Probe.fbx 夹具的端到端自证。
+        /// 断言 ①条目数/id/title ②show 收的是接线物体本身 ③hide 收到剥 _off 后的 base 目标
+        /// （代理自己绝不进 hide）④SettleToNormal/Apply/Revert 的开合逐字还原
+        /// ⑤IsAnomalyWireName 真值表。坏样本开关沿用 VERIFY_BAD=1：把期望条目数翻成 3，
+        /// 默认路径绝不用假期望。临时根最后必删，不留场景残骸、不改夹具预制。
+        /// </summary>
+        public static void VerifyResolveProbe()
+        {
+            var failures = new List<string>();
+            int expectedEntries = BadSample ? 3 : 1;
+            if (BadSample)
+                Debug.Log("[VERIFY] ---- 坏样本注入（仅 VERIFY_BAD=1）---- 期望条目数翻成 "
+                          + expectedEntries + "（真实为 1），默认路径期望为 1");
+
+            AssetDatabase.ImportAsset(ProbePath, ImportAssetOptions.ForceSynchronousImport);
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(ProbePath);
+            if (prefab == null)
+            {
+                Debug.LogError("[VERIFY] FAIL: 无法加载 " + ProbePath);
+                return;
+            }
+
+            var tempRoot = new GameObject("VerifyResolveProbeRoot");
+            try
+            {
+                var inst = UnityEngine.Object.Instantiate(prefab);
+                inst.transform.SetParent(tempRoot.transform, false);
+                Debug.Log("[VERIFY] 夹具实例根节点名: " + inst.name
+                          + "（解析器按递归走，不按根名，(Clone) 后缀无害）");
+
+                var entries = AnomalyResolver.Resolve(tempRoot.transform);
+
+                // (1) 条目数 / id / title
+                if (entries.Count != expectedEntries)
+                    failures.Add("异常条目数=" + entries.Count + "，期望=" + expectedEntries);
+                else
+                {
+                    Debug.Log("[VERIFY] 条目数符合期望: " + entries.Count);
+                    var e = entries[0];
+                    if (e.id != "anom01") failures.Add("id 应为 anom01，实际: " + e.id);
+                    string wantTitle = BadSample ? "故意错的标题" : AnomalyTitles.Table["anom01"];
+                    if (e.title != wantTitle)
+                        failures.Add("title 不符: " + e.title + "（期望 " + wantTitle + "）");
+                    else
+                        Debug.Log("[VERIFY] title 逐字命中表: " + e.title);
+
+                    // (2) show：收的就是接线物体本身
+                    var wantShow = new List<string> { "anom01_show_shadeFigure", "anom01_show_probeCubeB" };
+                    if (e.show.Count != 2)
+                        failures.Add("show.Count 应为 2，实际: " + e.show.Count);
+                    else
+                    {
+                        foreach (var name in wantShow)
+                        {
+                            var t = FindByName(tempRoot.transform, name);
+                            var go = t != null ? t.gameObject : null;
+                            if (go == null || !e.show.Contains(go))
+                                failures.Add("show 缺接线物体本身: " + name);
+                        }
+                        Debug.Log("[VERIFY] show 两项均为接线物体本身: " + string.Join(",", wantShow));
+                    }
+
+                    // (3) hide：代理剥 _off 后指认到 base 目标；代理自己绝不进 hide
+                    if (e.hide.Count != 1)
+                        failures.Add("hide.Count 应为 1，实际: " + e.hide.Count);
+                    else if (e.hide[0] == null || e.hide[0].name != "floor")
+                        failures.Add("hide[0] 应为 base 目标 floor，实际: "
+                                     + (e.hide[0] == null ? "null" : e.hide[0].name));
+                    else
+                        Debug.Log("[VERIFY] hide[0]=floor（代理 anom01_hide_floor_off 已指认 base 目标）");
+
+                    var proxyT = FindByName(tempRoot.transform, "anom01_hide_floor_off");
+                    if (proxyT != null && (e.hide.Contains(proxyT.gameObject)
+                                           || e.show.Contains(proxyT.gameObject)))
+                        failures.Add("hide 代理自己混进了 show/hide 桶: " + proxyT.name);
+
+                    // (4) 状态机三段：SettleToNormal / Apply / Revert 逐字还原
+                    var shadeT = FindByName(tempRoot.transform, "anom01_show_shadeFigure");
+                    var cubeT = FindByName(tempRoot.transform, "anom01_show_probeCubeB");
+                    var floorT = FindByName(tempRoot.transform, "floor");
+                    if (shadeT == null || cubeT == null || floorT == null || proxyT == null)
+                        failures.Add("夹具节点缺失，无法跑状态机断言");
+                    else
+                    {
+                        e.SettleToNormal();
+                        CheckActive(failures, "SettleToNormal", shadeT, false);
+                        CheckActive(failures, "SettleToNormal", cubeT, false);
+                        CheckActive(failures, "SettleToNormal", floorT, true);
+                        CheckActive(failures, "SettleToNormal", proxyT, false);
+
+                        e.Apply();
+                        CheckActive(failures, "Apply", shadeT, true);
+                        CheckActive(failures, "Apply", cubeT, true);
+                        CheckActive(failures, "Apply", floorT, false);
+                        CheckActive(failures, "Apply", proxyT, false);
+
+                        e.Revert();
+                        CheckActive(failures, "Revert", shadeT, false);
+                        CheckActive(failures, "Revert", cubeT, false);
+                        CheckActive(failures, "Revert", floorT, true);
+                        CheckActive(failures, "Revert", proxyT, false);
+                        if (failures.Count == 0)
+                            Debug.Log("[VERIFY] Revert 逐字还原 SettleToNormal 后的正常态");
+                    }
+                }
+
+                // (5) IsAnomalyWireName 真值表（口径 = WireGrammar：两位数字 + show|hide 桶）
+                CheckWireName(failures, "anom01_show_x", true);
+                CheckWireName(failures, "anom01_hide_x_off", true);
+                CheckWireName(failures, "floor", false);
+                CheckWireName(failures, "wallL", false);
+                CheckWireName(failures, "anom1_show_x", false);
+                CheckWireName(failures, "Calendar2000_mark", false);
+                if (failures.Count == 0)
+                    Debug.Log("[VERIFY] IsAnomalyWireName 真值表 6/6 命中（anom1_show_x 位数不足 → false，与解析器同口径）");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(tempRoot);
+                Debug.Log("[VERIFY] 临时根已销毁，无场景残骸（夹具预制未触碰）");
+            }
+
+            if (failures.Count == 0)
+                Debug.Log("[VERIFY] PASS: AnomalyResolver 对 Probe.fbx 端到端成立（条目/id/title + show 本体 + hide→base 指认 + Apply/Revert 还原 + wire 真值表）");
+            else
+            {
+                foreach (var f in failures)
+                    Debug.LogError("[VERIFY] FAIL: " + f);
+                Debug.LogError("[VERIFY] FAIL: 共 " + failures.Count + " 项 —— " + string.Join(" | ", failures));
+            }
+        }
+
+        static void CheckWireName(List<string> failures, string name, bool expected)
+        {
+            bool actual = AnomalyResolver.IsAnomalyWireName(name);
+            if (actual != expected)
+                failures.Add("IsAnomalyWireName(" + name + ")=" + actual + "，期望 " + expected);
+        }
+
+        static void CheckActive(List<string> failures, string phase, Transform t, bool expected)
+        {
+            if (t.gameObject.activeSelf != expected)
+                failures.Add(phase + ": " + t.name + " activeSelf=" + t.gameObject.activeSelf
+                             + "，期望 " + expected);
+        }
+
+        /// <summary>
         /// 只有带网格的节点算"物体"；空节点是 Blender 集合残影。
         /// objectNames 供名保真/往返，meshNodes 供逐节点尺寸断言。
         /// </summary>

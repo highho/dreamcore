@@ -59,34 +59,51 @@ GUI 建模（MCP 驱动，人机交互）
 
 ## 3. 命名与产物约定（跨单元契约，改动需两侧同步）
 
-Blender 侧集合结构：
+> 本节按 §9.1 实测与 §9.2 主控裁定**整体重写为前缀式 wire 契约**（Task 3）。原文的
+> "异常语义由集合路径给出"已被实测证伪：Blender 集合从不进 FBX，Unity 拿到的是扁平层级。
+
+Blender 侧集合结构（**仅作编排侧容器**，方便建模时按桶开关，不再指望它过 FBX）：
 
 ```
-base                    恒定不变的走廊本体（墙面/地面/灯/门/信箱/窗…）
-anom/01/show/<名字>      异常 01 激活时出现的物件
-anom/01/hide/<名字>_off  异常 01 激活时消失的物件；去掉 _off 即 base 里的目标名
+base                     恒定不变的走廊本体（墙面/地面/灯/门/信箱/窗…）
+anom/01/show             异常 01 激活时出现的物件集合
+anom/01/hide             异常 01 激活时消失的代理集合
 ```
 
-- 异常语义由**集合路径**（`show` / `hide`）给出，不由对象名里的 token 给出，避免命名规则脆弱。
-- `hide` 代理用固定后缀 `_off`，不是直接同名的对象。**原因（Blender 硬约束）**：Blender
-  对象名全局唯一，`base/灯3` 与 `anom/01/hide/灯3` 无法共存，后者会被自动改名为
-  `灯3.001`，"同名即目标"的映射当场失效。`_off` 后缀保证名字唯一且映射是机械可逆的。
+FBX wire 契约（唯一真相在 `AnomalyResolver.cs`，其它处一律调它的 `IsAnomalyWireName`）：
+
+```
+floor / wallL / Door_3 / Light_2 …      base 本体：裸名，不加任何前缀
+anom<NN>_show_<leaf>                    异常激活时出现的物件（anom01_show_shadeFigure）
+anom<NN>_hide_<base目标名>_off          异常激活时消失的代理；剥掉尾部 _off 即 base 目标名
+                                        （anom01_hide_Light_2_off → 指认 Light_2）
+```
+
+- 异常语义由**对象名前缀语法**给出；解析器递归遍历整个场景根按名分桶，不依赖任何
+  `anom`/`show`/`hide` 节点（§9.1：这些节点在 FBX 里根本不存在）。
+- `hide` 代理用固定后缀 `_off`，不是直接同名的对象，代理自己永不渲染。**原因（Blender 硬约束）**：
+  Blender 对象名全局唯一，`base` 里的 `灯3` 与消失代理无法同名，后者会被自动改名为 `灯3.001`，
+  "同名即目标"的映射当场失效。`_off` 后缀保证名字唯一且映射是机械可逆的。
+- 解析失败的疑似 wire 名（如位数不对的 `anom1_show_x`、bucket 不是 show/hide 的 `anom01_foo`）
+  由解析器打 `Debug.LogWarning` 后忽略，不静默、不抛异常。
 - 导出为单个 FBX，不拆文件；Unity 侧导入一次。
 
-Unity 侧数据资产（均由 Bootstrap3D 生成，**不在编辑器里手摆**）：
+Unity 侧运行时数据（由 `AnomalyResolver.Resolve(sceneRoot)` 在 Bootstrap3D 装配时生成，
+**不在编辑器里手摆，也不再是 ScriptableObject 资产**）：
 
 ```
-AnomalyDefinition : ScriptableObject
-    string id           // "anom03"
-    string title        // 人类可读，用于日志与调试 HUD
-    GameObject[] show
-    GameObject[] hide
-AnomalyCatalog : ScriptableObject
-    AnomalyDefinition[] definitions
-    int   maxDepth
-    int   maxMistakes
-    float cleanChance
+[Serializable] AnomalyEntry            // 列表直接序列化在场景里的 Loop3D 组件上
+    string id                          // "anom03"
+    string title                       // 来自 AnomalyTitles 表，人类可读，用于日志与调试 HUD
+    List<GameObject> show
+    List<GameObject> hide
+    Apply() / Revert() / SettleToNormal()
 ```
+
+**落点修正的理由**：ScriptableObject 资产持有场景 GameObject 的引用是伪引用——场景一重载
+即失效，而 Main3D 每次都由 Bootstrap3D 重建；`AnomalyEntry` 列表序列化在 `Loop3D` 上、
+物件由解析器在装配当场从 FBX 实例接线，才是 Unity 常规接线方式。
+`maxDepth=8`、`maxMistakes=3`、`cleanChance=0.35` 等数值仍按 §8 序列化在 `Loop3D` 上。
 
 ## 4. 玩法与异常编排
 
