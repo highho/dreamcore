@@ -1,6 +1,6 @@
 # 《昨日的明天》3D 轨道与 Blender 资产管线 · 设计
 
-日期：2026-10-17 ｜ 状态：待复核 ｜ 基线提交：`4ba3c9d`
+日期：2026-10-17 ｜ 状态：**已批准**（§8 默认值整批追认）｜ 基线提交：`4ba3c9d`
 
 文中所有行号引用（`Loop3D.cs:33-38` 等）一律针对基线提交 `4ba3c9d` 的工作树；代码一旦
 改动，引用需重新核对，不可直接沿用。
@@ -197,16 +197,16 @@ batchmode 日志 grep 结果、exe 存在性、实机 Player.log。自写的检�
 - M2 超时 → 保留灰盒几何，只换 Blender 程序化贴图（玩法无损，观感有救）。
 - M3 超时 → 异常数 10 砍到 6，优先留 anom01/02/03/05/06/08。
 
-## 8. 待拍板（需用户裁决，不代答）
+## 8. 数值与表现定案（2026-10-17 用户整批追认默认值）
 
-1. `maxDepth=8`、`maxMistakes=3` 沿用 2D 版数值，还是 3D 走动版要调深度？
-2. 异常数量：10（默认）还是先做 6 保底？
-3. `cleanChance`（干净层出现概率）：建议 **0.35**。
-4. HUD 是否被梦核滤镜盖脏：3D 版 canvas 现为 `ScreenSpaceOverlay`
-   （`Bootstrap3D.cs:166`），按已记录的 URP 坑，Overlay **不吃后处理**，故 HUD 文字
-   干净、不带质感；2D 版当初为此专门换成 ScreenSpaceCamera。
-5. 好结局的"2000 年挂历 / 2 月 30 日"彩蛋是否采用。
-6. 结局文案措辞（我给草稿再定稿）。
+1. `maxDepth=8`、`maxMistakes=3` —— **沿用 2D 版数值**。
+2. 异常数量 —— **10**；超时保底砍到 6（见 §7 降级）。
+3. `cleanChance` —— **0.35**。
+4. HUD —— **换 ScreenSpaceCamera**，与 2D 版当初决策一致：梦核质感优先，接受文字可读
+   性下降。注意 3D 版现状是 `ScreenSpaceOverlay`（`Bootstrap3D.cs:166`），按已记录的
+   URP 坑 Overlay 不吃后处理，须在 M3 改掉。
+5. 好结局"2000 年挂历 / 2 月 30 日"彩蛋 —— **采用**。
+6. 结局文案 —— M4 出草稿后定稿（唯一仍开放的项）。
 
 ## 9. 已知坑位（实施期追加，不回改历史条目）
 
@@ -216,4 +216,4 @@ batchmode 日志 grep 结果、exe 存在性、实机 Player.log。自写的检�
   `Bootstrap3D` 复用现有 Profile，勿回退该写法。
 - Overlay UI 不吃后处理（见 §8.4）。
 - `raw.githubusercontent.com` 本机被连接重置（curl rc=56），取源码走 `gh api`。
-- `AddonPaths` 只认已生成配置目录的 Blender 版本（见 §6）。
+- `mcp-for-blender addon-paths` 只认已生成配置目录的 Blender 版本（见 §6）。
