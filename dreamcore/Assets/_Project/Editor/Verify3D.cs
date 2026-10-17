@@ -397,151 +397,70 @@ namespace Dreamcore.EditorTools
                 Walk(t.GetChild(i), path, paths, objectNames, meshNodes, sb);
         }
 
-        // ---- Task 4 玩法段 fixture：base 裸名 + 前缀式 wire 名（default 组 = anom01..anom06 + anom08，extra 集 = anom09）----
-        static readonly string[] FixtureBase = { "floor", "wallL", "lampA", "poster", "door", "bike" };
-        static readonly string[] FixtureShow =
-        {
-            "anom01_show_extraFigure",
-            "anom02_show_extraPoster",
-            "anom03_show_doorOpen",
-            "anom05_show_shoes",
-            "anom06_show_bikeFallen",
-            "anom08_show_waterPuddle",
-            "anom09_show_redWire",
-        };
-        static readonly string[] FixtureHideProxy =
-        {
-            "anom01_hide_lampA_off",
-            "anom03_hide_door_off",
-            "anom04_hide_poster_off",
-            "anom06_hide_bike_off",
-        };
-        // 默认目录 7 条 + extra 集 1 条（anom09）= fixture 里共 8 个不同 id
-        static readonly string[] DefaultIds = { "anom01", "anom02", "anom03", "anom04", "anom05", "anom06", "anom08" };
-        static readonly string[] FullIds = { "anom01", "anom02", "anom03", "anom04", "anom05", "anom06", "anom08", "anom09" };
-
         /// <summary>
-        /// Task 4 玩法段验收口（batchmode -executeMethod …Verify3D.VerifyGameplay）。
-        /// 就地搭灰盒 fixture（GameObject.CreatePrimitive + 前缀式 wire 名），走
-        /// AnomalyResolver.Resolve → Loop3D.Setup → Begin/Report 的完整链路；
-        /// 不引用 GreyboxAnomalies（那是 Task 5 才创建的文件），形态抄 VerifyResolveProbe。
-        /// 异常是否生效一律按 activeSelf 断（Apply/Revert/SettleToNormal 的真实语义），不按 mr.enabled。
-        /// 坏样本（VERIFY_BAD=1）注入 5 条彼此独立的坏期望：目录 id 列表 / depth1 干净位 /
-        /// hide→base 目标名 / Apply 后 show 的 activeSelf / 好结局后的状态机相位。
-        /// 每条各成一红、聚合进局部 failures 逐行打印（本文件无共享 fails，也无 Report()）；
-        /// 默认路径绝不用假期望。临时 fixture 与临时 Loop3D 在 finally 里 DestroyImmediate。
+        /// Task 4 玩法段验收口（batchmode -executeMethod Dreamcore.EditorTools.Verify3D.VerifyGameplay）。
+        /// 断言集合逐条对齐 brief Step 1，fixture 也照 Step 1 自己搭：10 条假异常（空 GameObject，
+        /// 灰盒阶段不需要美术）直接赋给 Loop3D.anomalies，cleanChance 由本段自己设。
+        /// 本段刻意不调 AnomalyResolver、不引用 GreyboxAnomalies（那是 Task 5 才创建的文件）：
+        /// Loop3D 只认目录（计划 1090/1618 行 `loop.anomalies = entries;`、846 行断 `anomalies.Count == 10`），
+        /// 装配永远是消费方的事，玩法层不该知道物件从哪来。
+        /// 覆盖：初始 Depth==1 / Begin(12345) 后 depth1 干净 / 同局不重复 / 连答 7 次好结局 /
+        /// 三错坏结局 / 结局后判定被忽略（ended 门）/ 存在能出干净层的 seed / Apply-Revert 真开关
+        /// （异常生效一律按 activeSelf 断，这就是 AnomalyEntry 的显隐模型）。
+        /// 坏样本（VERIFY_BAD=1）分支级注入 3 条、各成一红互不短路：
+        /// ① depth1 干净位翻成"应有异常"；② Apply 后 show 的期望翻成"仍关着"；
+        /// ③ brief 自带的那条不可能断言（"坏样本：这条断言必须失败"）。
+        /// ①② 都注入在本次跑真正会走到的分支里，默认路径的期望值全是真实值、一条都不放宽。
+        /// 形态沿用本文件真实惯例：入口自持局部 failures + 逐行 [VERIFY] FAIL: + 汇总行 + 单行 [VERIFY] PASS
+        /// （本文件没有共享 fails/Report()，不新增，省得和既有两个口打架）。临时物件在 finally 里 DestroyImmediate。
         /// </summary>
         public static void VerifyGameplay()
         {
             var failures = new List<string>();
             if (BadSample)
-                Debug.Log("[VERIFY] ---- 坏样本注入（仅 VERIFY_BAD=1）---- 5 条独立坏期望："
-                          + "目录 id 列表塞入 anom99_not_in_fixture / depth1 干净位翻成'应有异常' / "
-                          + "hide→base 目标名翻成 no_such_base_target / Apply 后 show 期望仍关着 / "
-                          + "好结局后相位期望翻成 Normal；默认路径绝不用这些假期望");
+                Debug.Log("[VERIFY] ---- 坏样本注入（仅 VERIFY_BAD=1）---- 3 条彼此独立的坏期望："
+                          + "depth1 干净位翻成'应有异常' / Apply 后 show 期望翻成'仍关着' / "
+                          + "brief 自带的那条不可能断言；默认路径绝不用这些假期望");
 
-            var fixture = BuildGameplayFixture();
-            GameObject loopGo = null;
+            // 造 10 个假异常（灰盒阶段就用空 GameObject，不需要美术）
+            var holder = new GameObject("verify_holder");
+            var loopGo = new GameObject("verify_loop");
+            var catalog = new List<Dreamcore.AnomalyEntry>();
+            var objs = new List<GameObject>();
             try
             {
-                // (0) 解析器 → 目录：走真 wire 名，而不是手摆 AnomalyEntry
-                var all = AnomalyResolver.Resolve(fixture.transform);
-                Debug.Log("[VERIFY] fixture 经 AnomalyResolver 解析到 " + all.Count + " 条异常");
-                var defaultCatalog = all.FindAll(e => e.id != "anom09");
-
-                loopGo = new GameObject("VerifyGameplayLoop");
-                var loop = loopGo.AddComponent<Dreamcore.D3.Loop3D>();
-
-                // (1) Setup 空值守卫：null 目录 / null 根都要抛 ArgumentNullException
-                int nullCatalogHits = 0, nullRootHits = 0;
-                try { loop.Setup(null, fixture.transform); }
-                catch (ArgumentNullException) { nullCatalogHits++; }
-                try { loop.Setup(defaultCatalog, null); }
-                catch (ArgumentNullException) { nullRootHits++; }
-                Assert(failures, nullCatalogHits == 1,
-                       "Setup(null, root) 必须抛 ArgumentNullException，实际抛了 " + nullCatalogHits + " 次");
-                Assert(failures, nullRootHits == 1,
-                       "Setup(catalog, null) 必须抛 ArgumentNullException，实际抛了 " + nullRootHits + " 次");
-
-                // (2) 默认目录 = anom01..anom06 + anom08（id 逐字、顺序按解析器排序）
-                loop.Setup(defaultCatalog, fixture.transform);
-                CheckIds(failures, "默认目录 id", loop.GetAnomalyIdsForTest(),
-                         BadSample ? WithBogus(DefaultIds, "anom99_not_in_fixture") : DefaultIds);
-                Assert(failures, loop.CountAnomalies() == DefaultIds.Length,
-                       "默认目录应装 " + DefaultIds.Length + " 条，实际 " + loop.CountAnomalies());
-
-                // (3) 幂等：换成 default+extra（anom09）共 8 条，再连调两次不得叠加
-                loop.Setup(all, fixture.transform);
-                int firstCount = loop.CountAnomalies();
-                loop.Setup(all, fixture.transform);
-                Assert(failures, firstCount == FullIds.Length && loop.CountAnomalies() == FullIds.Length,
-                       "Setup 幂等：含 extra 集后连调两次仍应 " + FullIds.Length
-                       + " 条，实际首次 " + firstCount + "/二次 " + loop.CountAnomalies());
-                CheckIds(failures, "装配后 id", loop.GetAnomalyIdsForTest(), FullIds);
-
-                // (4) Setup 将全场钉成"正常"：show 全关、hide（base 目标）全开
-                int normalViolations = 0;
-                foreach (var e in loop.anomalies)
+                for (int i = 1; i <= 10; i++)
                 {
-                    foreach (var g in e.show) if (Active(g)) normalViolations++;
-                    foreach (var g in e.hide) if (!Active(g)) normalViolations++;
-                }
-                Assert(failures, normalViolations == 0,
-                       "Setup 后 show 必须全关、hide 目标必须全开，违例 " + normalViolations + " 处");
-                Assert(failures, loop.Depth == 1, "初始深度应为 1，实际 " + loop.Depth);
-                Assert(failures, loop.Mistakes == 0, "初始异常记录应为 0，实际 " + loop.Mistakes);
-                Assert(failures, loop.Current == null, "Setup 后不应有在用异常，实际 "
-                         + (loop.Current == null ? "null" : loop.Current.id));
-
-                // (5) hide 桶收到的是剥 _off 后的 base 目标本身（不是代理）
-                // 坏样本注入③：把期望目标名翻成 base 里绝不存在的名字。
-                var e01 = all.Find(e => e.id == "anom01");
-                var hideTarget = e01 != null && e01.hide.Count > 0 ? e01.hide[0] : null;
-                string wantHideTarget = BadSample ? "no_such_base_target" : "lampA";
-                Assert(failures, hideTarget != null && hideTarget.name == wantHideTarget,
-                       "anom01 hide[0] 应为 base 目标 " + wantHideTarget + "，实际 "
-                       + (hideTarget == null ? "无" : hideTarget.name));
-
-                // (6) Apply / Revert / SettleToNormal 真开关（按 activeSelf 断，不看 mr.enabled）
-                if (e01 == null || hideTarget == null)
-                    failures.Add("anom01 条目或其 hide 目标缺失，无法跑 Apply/Revert 断言");
-                else
-                {
-                    var fig = e01.show.Find(g => g != null && g.name == "anom01_show_extraFigure");
-                    Assert(failures, fig != null, "anom01 show 里应能找到 anom01_show_extraFigure");
-                    if (fig != null)
+                    var on = new GameObject("on_" + i);
+                    var off = new GameObject("off_" + i);
+                    off.SetActive(false);
+                    objs.Add(on); objs.Add(off);
+                    catalog.Add(new Dreamcore.AnomalyEntry
                     {
-                        e01.Apply();
-                        // 坏样本注入④：Apply 之后仍期望 show 关着（与 Apply 的语义相反，必红）
-                        Assert(failures, fig.activeSelf == !BadSample,
-                               "Apply 应开 show：extraFigure.activeSelf=" + fig.activeSelf);
-                        Assert(failures, !Active(hideTarget), "Apply 应关 hide 目标 lampA");
-                        e01.Revert();
-                        Assert(failures, !fig.activeSelf && Active(hideTarget),
-                               "Revert 应逐字还原：extraFigure.activeSelf=" + fig.activeSelf
-                               + " lampA.activeSelf=" + Active(hideTarget));
-                        e01.Apply();
-                        loop.SettleNowForTest();
-                        Assert(failures, !fig.activeSelf && Active(hideTarget),
-                               "SettleNowForTest 应把所有条目钉回正常态（含在用的异常）");
-                    }
+                        id = "anom" + i.ToString("D2"),
+                        title = "假异常 " + i,
+                        show = new List<GameObject> { on },
+                        hide = new List<GameObject> { off },
+                    });
                 }
 
-                // (7) depth 1 强制干净 —— 玩家先要见过"正常"
-                // 坏样本注入②：真实期望恒为"无异常"，坏样本把它翻成"应有异常"。
+                var loop = loopGo.AddComponent<Dreamcore.D3.Loop3D>();
+                loop.anomalies = catalog;
                 loop.cleanChance = 0f; // 本段只验抽取规则，干净层单列
-                loop.Begin(12345);
-                bool wantAnomalyAtDepth1 = BadSample;
-                Assert(failures, loop.HasAnomaly == wantAnomalyAtDepth1,
-                       "depth 1 必须干净（HasAnomaly=" + loop.HasAnomaly + "，期望 "
-                       + wantAnomalyAtDepth1 + "）");
-                Assert(failures, loop.GetState() == "Normal", "Begin 后相位应为 Normal，实际 " + loop.GetState());
 
-                // (8) 不重复 + 连答到 maxDepth 出好结局
+                // (1) 初始深度应为 1
+                Assert(failures, loop.Depth == 1, "初始深度应为 1，实际 " + loop.Depth);
+
+                // (2) depth 1 必须干净（玩家要先见过"正常"）
+                // 坏样本注入①（跑得到的分支）：真实期望恒为"无异常"，坏跑把它翻成"应有异常"。
+                loop.Begin(12345);
+                Assert(failures, loop.HasAnomaly == BadSample,
+                       "depth 1 必须干净（HasAnomaly=" + loop.HasAnomaly + "，期望 " + BadSample + "）");
+
+                // (3) 不重复 + 连答到好结局
                 var seen = new List<string>();
                 bool ended = false;
-                bool lastWin = false;
-                loop.OnEnd += w => { ended = true; lastWin = w; };
+                loop.OnEnd += w => ended = w;
                 for (int i = 0; i < 7 && !ended; i++)
                 {
                     loop.Report(!loop.HasAnomaly); // 永远答对
@@ -550,38 +469,25 @@ namespace Dreamcore.EditorTools
                 Assert(failures, seen.Count == new HashSet<string>(seen).Count,
                        "同一局内异常不得重复，抽到 " + seen.Count + " 层、去重后 "
                        + new HashSet<string>(seen).Count + " 个");
-                Assert(failures, ended && lastWin, "连答 7 次应到深度 8 触发好结局，实际 ended="
-                         + ended + " win=" + lastWin);
+                Assert(failures, ended, "连答 7 次对应到深度 8 触发好结局，实际 ended=" + ended
+                         + "、抽到 " + seen.Count + " 个异常");
 
-                // 坏样本注入⑤：好结局后相位期望翻成 Normal（真实为 Ending）
-                string wantStateAfterWin = BadSample ? "Normal" : "Ending";
-                Assert(failures, loop.GetState() == wantStateAfterWin,
-                       "好结局后相位应为 " + wantStateAfterWin + "，实际 " + loop.GetState());
-                Assert(failures, loop.Mistakes <= loop.maxMistakes,
-                       "结局时异常记录不得越过 maxMistakes，实际 " + loop.Mistakes + "/" + loop.maxMistakes);
-
-                // (9) ResetLoop 把场面归位并允许重开（含 Time.timeScale 复原）
-                loop.ResetLoop();
-                Assert(failures, loop.GetState() == "Normal" && loop.Depth == 1 && loop.Mistakes == 0
-                       && loop.Current == null,
-                       "ResetLoop 后应回到 Normal/深度1/0 记录/无在用异常，实际 " + loop.GetState()
-                       + "/" + loop.Depth + "/" + loop.Mistakes);
-                Assert(failures, Mathf.Approximately(Time.timeScale, loop.timeScale),
-                       "ResetLoop 应把 Time.timeScale 复原成 timeScale 字段值，实际 "
-                       + Time.timeScale + " vs " + loop.timeScale);
-
-                // (10) 三错即败 + 结束后判定被忽略（ended 门）
+                // (4) 三错即败
                 loop.Begin(999);
-                int loseFlags = 0;
-                loop.OnEnd += w => { if (!w) loseFlags |= 1; };
+                int winFlags = 0;
+                loop.OnEnd += w => { if (!w) winFlags |= 1; };
                 for (int i = 0; i < 3; i++) loop.Report(loop.HasAnomaly); // 永远答错
-                Assert(failures, (loseFlags & 1) == 1, "错满 3 次必须触发坏结局");
+                Assert(failures, (winFlags & 1) == 1,
+                       "错满 3 次必须触发坏结局，实际 winFlags=" + winFlags
+                       + " Mistakes=" + loop.Mistakes);
+
+                // (5) 结束后再判定必须被忽略（ended 门）
                 int depthAfterLose = loop.Depth;
                 loop.Report(false);
                 Assert(failures, loop.Depth == depthAfterLose,
                        "结束后再判定必须被忽略（ended 门），实际 " + loop.Depth + " vs " + depthAfterLose);
 
-                // (11) 干净层确实会出现（否则"无脑回头"成为支配策略）
+                // (6) 干净层确实会出现（否则玩家可无脑回头）
                 bool anyClean = false;
                 for (int seed = 1; seed <= 60 && !anyClean; seed++)
                 {
@@ -595,16 +501,35 @@ namespace Dreamcore.EditorTools
                     }
                 }
                 Assert(failures, anyClean, "存在 seed 能让干净层出现（否则玩家可无脑回头）");
+
+                // (7) Apply / Revert 真开关（按 activeSelf 断）
+                var e = catalog[3];
+                e.show[0].SetActive(false);
+                e.hide[0].SetActive(true);
+                e.Apply();
+                // 坏样本注入②（跑得到的分支）：Apply 之后仍期望 show 关着（与 Apply 语义相反，必红）。
+                Assert(failures, e.show[0].activeSelf == !BadSample && !e.hide[0].activeSelf,
+                       "Apply 应开 show、关 hide（show.activeSelf=" + e.show[0].activeSelf
+                       + " hide.activeSelf=" + e.hide[0].activeSelf + "，show 期望 " + !BadSample + "）");
+                e.Revert();
+                Assert(failures, !e.show[0].activeSelf && e.hide[0].activeSelf,
+                       "Revert 应逐字还原（show.activeSelf=" + e.show[0].activeSelf
+                       + " hide.activeSelf=" + e.hide[0].activeSelf + "）");
+
+                // (8) brief 自带的坏样本主断言：VERIFY_BAD=1 时必须红，默认路径绝不执行。
+                if (BadSample)
+                    Assert(failures, false, "坏样本：这条断言必须失败");
             }
             finally
             {
-                if (loopGo != null) UnityEngine.Object.DestroyImmediate(loopGo);
-                UnityEngine.Object.DestroyImmediate(fixture);
-                Debug.Log("[VERIFY] 临时 fixture 与临时 Loop3D 已 DestroyImmediate，无场景残骸（wire 名节点都在 fixture 子树内）");
+                foreach (var o in objs) UnityEngine.Object.DestroyImmediate(o);
+                UnityEngine.Object.DestroyImmediate(holder);
+                UnityEngine.Object.DestroyImmediate(loopGo);
+                Debug.Log("[VERIFY] verify_loop 与 verify_holder（含 20 个假异常物件）已 DestroyImmediate，无场景残骸");
             }
 
             if (failures.Count == 0)
-                Debug.Log("[VERIFY] PASS: 玩法断言全过（Setup 守卫+幂等 / 目录 id / activeSelf 三段 / depth1 干净 / 不重复 / 好坏结局 / ended 门 / 干净层）");
+                Debug.Log("[VERIFY] PASS: 玩法断言全过（初始深度 / depth1 干净 / 同局不重复 / 好结局 / 坏结局 / ended 门 / 干净层 / Apply-Revert 真开关）");
             else
             {
                 foreach (var f in failures)
@@ -613,66 +538,11 @@ namespace Dreamcore.EditorTools
             }
         }
 
-        /// <summary>
-        /// 就地搭玩法 fixture：base 用图元（有 MeshFilter，解析器按名分桶），
-        /// show 用图元（异常出现件），hide 用空 GameObject（只做 _off 名字载体，与 FBX 里的 EMPTY 同构）。
-        /// </summary>
-        static GameObject BuildGameplayFixture()
-        {
-            var root = new GameObject("VerifyGameplayFixture");
-            var b = new GameObject("base");
-            b.transform.SetParent(root.transform, false);
-            foreach (var name in FixtureBase)
-            {
-                var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                go.name = name;
-                go.transform.SetParent(b.transform, false);
-            }
-            var s = new GameObject("show");
-            s.transform.SetParent(root.transform, false);
-            foreach (var name in FixtureShow)
-            {
-                var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                go.name = name;
-                go.transform.SetParent(s.transform, false);
-            }
-            var h = new GameObject("hide");
-            h.transform.SetParent(root.transform, false);
-            foreach (var name in FixtureHideProxy)
-            {
-                var go = new GameObject(name);
-                go.transform.SetParent(h.transform, false);
-            }
-            return root;
-        }
-
-        static string[] WithBogus(string[] ids, string bogus)
-        {
-            var l = new List<string>(ids);
-            l.Add(bogus);
-            return l.ToArray();
-        }
-
-        static void CheckIds(List<string> failures, string label, List<string> actual, string[] expected)
-        {
-            bool same = actual != null && actual.Count == expected.Length;
-            if (same)
-                for (int i = 0; i < expected.Length; i++)
-                    if (actual[i] != expected[i]) { same = false; break; }
-            Assert(failures, same, label + " 应逐字为 [" + string.Join(",", expected) + "]，实际 ["
-                     + (actual == null ? "null" : string.Join(",", actual)) + "]");
-        }
-
         /// <summary>本文件惯例：断言即打印，失败聚合到调用方自己的局部 failures。</summary>
         static void Assert(List<string> failures, bool ok, string what)
         {
             if (!ok) failures.Add(what);
             Debug.Log("[VERIFY] " + (ok ? "ok  " : "FAIL") + "  " + what);
-        }
-
-        static bool Active(GameObject g)
-        {
-            return g != null && g.activeSelf;
         }
 
         static Transform FindByName(Transform root, string name)

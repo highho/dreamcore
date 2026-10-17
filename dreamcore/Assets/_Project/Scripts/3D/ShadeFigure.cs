@@ -12,12 +12,13 @@ namespace Dreamcore.D3
         public float height = 1.8f;
         public float width = 0.8f;
 
-        MeshRenderer mr;
-
+        /// <summary>
+        /// 显隐权属于 AnomalyEntry（它用 GameObject.SetActive 开合 show/hide），
+        /// 本组件只负责"始终面向玩家"，绝不去禁用自家的 MeshRenderer——
+        /// 组件级 enabled 与 GameObject 级 SetActive 是两套开关，混用会让黑影异常永久不可见。
+        /// </summary>
         void Awake()
         {
-            mr = GetComponent<MeshRenderer>();
-            if (mr != null) mr.enabled = false;
             if (lookTarget == null)
             {
                 Camera cam = Camera.main;
@@ -25,14 +26,9 @@ namespace Dreamcore.D3
             }
         }
 
-        public void SetActive(bool on)
-        {
-            if (mr != null) mr.enabled = on;
-        }
-
         void Update()
         {
-            if (mr == null || !mr.enabled || lookTarget == null) return;
+            if (lookTarget == null) return;
             Vector3 look = lookTarget.position - transform.position;
             look.y = 0f;
             if (look.sqrMagnitude > 0.0001f)
