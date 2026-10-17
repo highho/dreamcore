@@ -407,10 +407,10 @@ namespace Dreamcore.EditorTools
         /// 覆盖：初始 Depth==1 / Begin(12345) 后 depth1 干净 / 同局不重复 / 连答 7 次好结局 /
         /// 三错坏结局 / 结局后判定被忽略（ended 门）/ 存在能出干净层的 seed / Apply-Revert 真开关
         /// （异常生效一律按 activeSelf 断，这就是 AnomalyEntry 的显隐模型）。
-        /// 坏样本（VERIFY_BAD=1）分支级注入 3 条、各成一红互不短路：
-        /// ① depth1 干净位翻成"应有异常"；② Apply 后 show 的期望翻成"仍关着"；
-        /// ③ brief 自带的那条不可能断言（"坏样本：这条断言必须失败"）。
-        /// ①② 都注入在本次跑真正会走到的分支里，默认路径的期望值全是真实值、一条都不放宽。
+        /// 坏样本（VERIFY_BAD=1）分支级注入 4 条、各成一红互不短路：
+        /// ① depth1 干净位翻成"应有异常"；② ended 门的 OnEnd 派发次数期望翻成"2 次"；
+        /// ③ Apply 后 show 的期望翻成"仍关着"；④ brief 自带的那条不可能断言（"坏样本：这条断言必须失败"）。
+        /// 四条都注入在本次跑真正会走到的分支里，默认路径的期望值全是真实值、一条都不放宽。
         /// 形态沿用本文件真实惯例：入口自持局部 failures + 逐行 [VERIFY] FAIL: + 汇总行 + 单行 [VERIFY] PASS
         /// （本文件没有共享 fails/Report()，不新增，省得和既有两个口打架）。临时物件在 finally 里 DestroyImmediate。
         /// </summary>
