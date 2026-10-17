@@ -217,3 +217,62 @@ batchmode 日志 grep 结果、exe 存在性、实机 Player.log。自写的检�
 - Overlay UI 不吃后处理（见 §8.4）。
 - `raw.githubusercontent.com` 本机被连接重置（curl rc=56），取源码走 `gh api`。
 - `mcp-for-blender addon-paths` 只认已生成配置目录的 Blender 版本（见 §6）。
+
+### 9.1 M0 探针实测（Task 1，2026-10-17，Blender 5.2.2 → Unity 6.3）
+
+样本：4 个 1m 立方体分别放进集合 `base` / `anom/01/show` / `anom/01/hide`，沿 Blender +Z
+每隔 10 排开，导出 `Assets/Content/3D/Probe.fbx`，Unity batchmode 打印真实层级。
+
+Unity 侧原始读数（`logs/verify-probe.log`，逐字）：
+
+```
+[VERIFY] ---- 层级实测 ----
+Probe  <node>
+Probe/floor  <mesh>
+Probe/floor_off  <mesh>
+Probe/shadeFigure  <mesh>
+Probe/wallL  <mesh>
+[VERIFY] 集合是否成为节点: False
+[VERIFY] 尺度 z差=0（期望≈10）
+[VERIFY] 实测位置 wallL=(0.00, 0.00, 0.00) floor=(0.00, 10.00, 0.00) 距离=10 rootScale=(1.00, 1.00, 1.00) rootRot=(0.00, 0.00, 0.00)
+[VERIFY] PASS: 期望对象名全部保真 wallL,floor,shadeFigure,floor_off
+```
+
+坏样本回喂（`VERIFY_BAD=1`，`logs/verify-probe-bad.log`）：`[VERIFY] FAIL: 缺失 no_such_object_xyz` —— 检查器会红，PASS 才算背书。
+
+三条假设的实测结论：
+
+| 假设 | 实测 | 依据 |
+|---|---|---|
+| 集合会变成 Unity 层级节点 | **不成立** | 层级是扁平的 `Probe/<对象名>`，`base`/`anom`/`01`/`show`/`hide` 一级都没出现 |
+| 对象名不被改写 | **成立** | 四个叶子名逐字节等值，无前缀、无 sanitization、无 `.001` 撞名 |
+| 1 Blender 单位 = 1 Unity 米 | **成立（世界尺度）** | `距离=10`、`rootScale=(1,1,1)`；但**轴被重排**：Blender +Z 的 10 米偏移落到 Unity +Y，所以计划原文的 `z差` 读数是 0，不是尺度错 |
+
+归因到 Blender 导出侧，不是 Unity 导入侧：`Probe.fbx` 二进制里可提取的节点名只有
+`RootNode` 与四个对象名（对整份文件严格 grep `base|anom` 零命中），集合名在文件里就已经不存在；且 Blender 5.2.2 的
+`bpy.ops.export_scene.fbx` 参数表里没有任何"集合导出为节点"的开关（实测 dump：
+`collection` / `use_active_collection` 只是过滤范围，`object_types` 只认对象不认集合）。
+
+**候选出路（第二种，已实测但未采纳，等裁定）**：在 Blender 里按集合路径建同名 EMPTY 做父级
+（`Rig/base`、`Rig/anom/01/show`…），立方体 parent 到对应 Empty。实测（`logs/probe-tmp2.log`）：
+
+```
+ProbeTmp/anom/01/hide/t_floor_off <mesh> local=(0.00, 0.00, 0.30) world=(0.00, 30.00, 0.00) lossy=(100.00, 100.00, 100.00) boundsSize=(0.01, 0.01, 0.01)
+ProbeTmp/base/t_floor <mesh> local=(0.00, 0.00, 0.10) world=(0.00, 10.00, 0.00) lossy=(100.00, 100.00, 100.00) boundsSize=(0.01, 0.01, 0.01)
+```
+
+层级路径整条保住，世界位置也仍是 10/20/30 米；**代价**是导入后节点 `lossyScale=100`、
+网格顶点被预除 100（`boundsSize=0.01`），净尺寸才对——任何读 `localScale`/`localPosition`
+或按包围盒算尺寸的代码都会踩这个 100 倍坑。前缀式命名（计划表第 2 行）没有这个副作用。
+
+**状态**：§3 的路径式契约按原样**不成立**。退化成前缀式、还是走 Empty 包裹，属跨任务契约
+变更（牵动 Task 3 解析器 / Task 6 建模 / Task 7 装配），由主控裁定后再改 §3；本任务不自行
+改约。已定案的两条：叶子名保真可依赖，世界尺度 1 单位 = 1 米可依赖（但别拿 Blender +Z 当
+Unity +Z 用）。
+
+**工具坑（实测，写脚本时必用）**：
+- `blender --background --python X --python-exit-code 4` 里该参数**放在 `--python` 之后会被忽略**
+  （故意抛异常仍 rc=0）；必须写作 `--background --python-exit-code 4 --python X` 才拿到 rc=4。
+- 计划原文的 `grep -o "\[VERIFY\] FAIL[^"]*"` 引号不配对（`[^"]` 里的 `"` 提前闭合字符串），
+  `bash -n` 直接报 unexpected EOF；改单引号 `'\[VERIFY\] FAIL[^"]*'` 才跑通。
+

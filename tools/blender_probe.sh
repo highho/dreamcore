@@ -1,0 +1,42 @@
+#!/bin/sh
+# ============================================================
+# M0 探针胶水：headless 跑 blender/probe_collections.py + 断言 FBX 产物在位，
+# 再跑 Unity batchmode 的 Verify3D.ProbeHierarchy 并 grep 验收行。
+# 退出码约定：0 = FBX 落盘 且 日志里的 [VERIFY] 结论符合预期。
+#   默认期望 PASS；VERIFY_BAD=1 时把期望翻成 FAIL（坏样本回喂，证明门是活的）。
+# 用法: ./tools/blender_probe.sh
+# ============================================================
+set -eu
+JAM_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BLENDER="/d/Game Library/Steam/steamapps/common/Blender/blender.exe"
+UNITY="/e/Unity/Unity/Editor/Editor/Unity.exe"
+PROJ="$JAM_ROOT/dreamcore"
+FBX="$PROJ/Assets/Content/3D/Probe.fbx"
+VLOG="$JAM_ROOT/logs/verify-probe.log"
+mkdir -p "$JAM_ROOT/logs"
+EXPECT=PASS
+[ "${VERIFY_BAD:-0}" = "1" ] && { EXPECT=FAIL; VLOG="$JAM_ROOT/logs/verify-probe-bad.log"; }
+
+echo "[1/2] Blender headless 导出探针 FBX..."
+# --python-exit-code 4 是必需的：没有它，脚本里的 Python 异常照样 exit 0，门就废了。
+# 实测（Blender 5.2.2）：该参数必须放在 --python 之**前**，放后面会被忽略（rc 仍为 0）。
+"$BLENDER" --background --python-exit-code 4 --python "$JAM_ROOT/blender/probe_collections.py" \
+  > "$JAM_ROOT/logs/probe-blender.log" 2>&1 \
+  || { echo "!! Blender 退出码非 0（Python 异常，rc=$?），见 logs/probe-blender.log"; exit 1; }
+grep -E '\[PROBE\]|Error' "$JAM_ROOT/logs/probe-blender.log" || true
+grep -q '\[PROBE\] exported' "$JAM_ROOT/logs/probe-blender.log" \
+  || { echo "!! 探针脚本没打印 exported（Python 异常？见 logs/probe-blender.log）"; exit 1; }
+[ -f "$FBX" ] || { echo "!! FBX 产物不在位：$FBX"; exit 1; }
+
+echo "[2/2] Unity batchmode 层级断言（期望 $EXPECT）..."
+"$UNITY" -batchmode -quit -projectPath "$PROJ" \
+  -executeMethod Dreamcore.EditorTools.Verify3D.ProbeHierarchy \
+  -logFile "$VLOG" || true
+grep -E '\[VERIFY\]|error CS' "$VLOG" || true
+grep -q 'error CS' "$VLOG" \
+  && { echo "!! Verify3D 编译失败，见 $VLOG"; exit 1; }
+line=$(grep -oE '\[VERIFY\] (PASS|FAIL)[^"]*' "$VLOG" | tail -1 || true)
+case "$line" in
+  *"VERIFY] $EXPECT"*) echo "== 符合预期 $EXPECT :: $line ==" ;;
+  *) echo "!! 期望 $EXPECT，实际这一行：$line"; exit 1 ;;
+esac
