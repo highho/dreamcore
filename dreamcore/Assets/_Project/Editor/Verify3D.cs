@@ -627,6 +627,217 @@ namespace Dreamcore.EditorTools
             }
         }
 
+        /// <summary>
+        /// M2 建模段验收口（batchmode -executeMethod Dreamcore.EditorTools.Verify3D.VerifyFbx）。
+        /// 只验 Corridor.fbx 资产本身，不碰 Main3D 的装配（灰盒继续顶着，M1 提交物完好；切装配是 Task 7）：
+        /// 把 prefab 实例化进临时场景根，套 Bootstrap3D.FbxYaw，然后直接跑 AnomalyResolver。
+        /// 契约形态（Task 1 实测 + §9.1）：Blender 集合从不进 FBX，异常语义只活在对象名前缀里，
+        /// 所以这里断言的是"名字集 + 用 AnomalyResolver.IsAnomalyWireName 做 base/anom 二分"，
+        /// 不是 base/anom 节点（节点版断言已被证伪，写进去就是恒假的门）；也不复制正则。
+        /// 尺寸断言一律走 Renderer.bounds：FBX 导入节点上只有世界量是米（§9.2）——
+        /// Transform.localScale 读 100、Mesh.bounds 读 1/100，两者都不是米。逐节点打证据行
+        /// （自身是 EMPTY / 父级是 EMPTY 全覆盖），把 Task 1 交下来的"非对称网格"与"Empty 父级"
+        /// 两个疑问用读数结掉，不留假设。
+        /// 形态沿用本文件真实惯例：入口自持局部 failures + 复用既有 Assert(failures,ok,what) 与
+        /// FindByName(Transform,string)（复用不重定义，重定义＝CS0111）+ 逐行 [VERIFY] FAIL: + 汇总行
+        /// + 单行 [VERIFY] PASS；Dreamcore.D3.* 全限定；裸 Object 有歧义 → 一律 UnityEngine.Object.
+        /// 坏样本沿用既有 static readonly bool BadSample（不重读环境变量）：一次注入 4 条彼此独立的
+        /// 坏期望，各成一红互不短路 —— ①组数 10→3；②anom01 hide 指认 6→99；③base 期望名里塞一个
+        /// 绝不存在的 no_such_base_xyz；④高度容差 2.5–3.6m 翻成 90–110m。默认路径期望值全是真实值。
+        /// 临时物件在 finally 里 DestroyImmediate，不留场景残骸、不改资产。
+        /// </summary>
+        public static void VerifyFbx()
+        {
+            var failures = new List<string>();
+            const string CorridorPath = "Assets/Content/3D/Corridor.fbx";   // 路径只写这一处
+            // 坏样本注入的期望一律在 FAIL 行里自标"坏样本"，否则红跑日志读起来像门本身坏了
+            // （"应指认 6 盏灯，实际 6"这种行既不说期望被翻过、也grep不到坏样本）。
+            const string BadTag = "（坏样本注入的假期望）";
+            const string NoSuchBareName = "no_such_base_xyz";
+            if (BadSample)
+                Debug.Log("[VERIFY] ---- 坏样本注入（仅 VERIFY_BAD=1）---- 4 条彼此独立的坏期望："
+                          + "异常组数 10→3 / anom01 hide 指认数 6→99 / base 期望名塞一个绝不存在的"
+                          + " " + NoSuchBareName + " / 高度容差 2.5-3.6m 翻成 90-110m；默认路径绝不用这些假期望");
+
+            AssetDatabase.ImportAsset(CorridorPath, ImportAssetOptions.ForceSynchronousImport);
+            var asset = AssetDatabase.LoadAssetAtPath<GameObject>(CorridorPath);
+            Assert(failures, asset != null, "Corridor.fbx 已导入为 GameObject 资产：" + CorridorPath);
+            if (asset == null)
+            {
+                foreach (var f in failures) Debug.LogError("[VERIFY] FAIL: " + f);
+                Debug.LogError("[VERIFY] FAIL: 共 " + failures.Count + " 项（FBX 资产缺失，VerifyFbx 终止）");
+                return;
+            }
+
+            var tmp = new GameObject("verify_fbx_stage");
+            try
+            {
+                var inst = UnityEngine.Object.Instantiate(asset);
+                inst.transform.SetParent(tmp.transform, false);
+                // 轴向补偿的唯一真相是 Bootstrap3D.FbxYaw（Bootstrap3D.cs 里唯一落点），这里跟着它转，别自己写角度
+                inst.transform.localRotation = Quaternion.Euler(0f, Bootstrap3D.FbxYaw, 0f);
+
+                Assert(failures, inst.transform.name.StartsWith("Corridor"),
+                       "根节点名取自文件名 Corridor（Instantiate 会加 (Clone)），实际 " + inst.transform.name);
+
+                // (1) 逐节点证据（RULING D）：EMPTY 与"父级是 EMPTY"都覆盖，非对称网格同时打
+                //     mesh.bounds（局部量，不是米）与 renderer.bounds（世界量，才是米）
+                var names = new List<string>();
+                int emptyNodes = 0, meshNodes = 0, emptyParented = 0;
+                WalkFbx(inst.transform, "STAGE", true, names,
+                        ref emptyNodes, ref meshNodes, ref emptyParented);
+                Debug.Log("[VERIFY] 节点统计: 全树 " + names.Count + " 个（MESH=" + meshNodes
+                          + " EMPTY=" + emptyNodes + " 根=1），父级是 EMPTY 的节点=" + emptyParented
+                          + "（实测层级扁平：FBX 根直接挂全部物件，集合没进来）");
+
+                // (2) base/anom 二分只问 IsAnomalyWireName（Task 7 的装配也问它），不在此复制语法
+                int nonWire = 0, wire = 0;
+                foreach (var n in names)
+                    if (AnomalyResolver.IsAnomalyWireName(n)) wire++; else nonWire++;
+                Assert(failures, nonWire >= 1,
+                       "至少有一个不匹配 wire 语法的对象名（base 桶存在），实际 non-wire=" + nonWire);
+                Assert(failures, wire == 22,
+                       "wire 语法名应为 22 个（9 show + 13 hide 代理），实际 " + wire);
+
+                // 命名保真：契约里的名字一个都不许被导入器改写。brief 的 9 个裸名 + RULING A 的 base 全清单
+                var bareExpected = new List<string> { "Floor", "WainscotL", "Door_3", "Poster_6", "MailboxDoor",
+                                                      "BikeUp", "WindowBuildings", "Light_2", "Light_22" };
+                if (BadSample) bareExpected.Add(NoSuchBareName);   // 缺名分支，必红
+                foreach (var want in bareExpected)
+                    Assert(failures, FindByName(inst.transform, want) != null,
+                           "base 名字保真：" + want
+                           + (BadSample && want == NoSuchBareName ? BadTag : ""));
+                foreach (var want in new[] { "WallLeft", "WallRight", "Ceiling", "EndWall", "WainscotR",
+                                             "Poster_10", "Poster_18", "Light_6", "Light_10", "Light_14", "Light_18" })
+                    Assert(failures, FindByName(inst.transform, want) != null, "base 名字保真（补全清单）：" + want);
+                foreach (var want in new[] { "anom01_show_emergencyLight",
+                                             "anom01_hide_Light_2_off", "anom01_hide_Light_6_off",
+                                             "anom01_hide_Light_10_off", "anom01_hide_Light_14_off",
+                                             "anom01_hide_Light_18_off", "anom01_hide_Light_22_off",
+                                             "anom02_show_extraFigure",
+                                             "anom03_show_Door_3_open", "anom03_hide_Door_3_off",
+                                             "anom04_hide_Poster_6_off", "anom04_hide_Poster_10_off",
+                                             "anom04_hide_Poster_18_off", "anom05_show_Shoes",
+                                             "anom06_show_BikeUp_open", "anom06_hide_BikeUp_off",
+                                             "anom07_show_MailboxDoor_open", "anom07_hide_MailboxDoor_off",
+                                             "anom08_show_WaterPuddle", "anom09_show_RedWire",
+                                             "anom10_show_WindowBuildings_open", "anom10_hide_WindowBuildings_off" })
+                    Assert(failures, FindByName(inst.transform, want) != null, "anom 名字保真：" + want);
+
+                // (3) 结构事实：19 个名字载体必须是 EMPTY（Task 7 要在灯位上挂点光、hide 代理永不显示）
+                Assert(failures, emptyNodes == 19,
+                       "EMPTY 节点应为 19（6 个 Light_ 灯位 + 13 个 hide 代理），实际 " + emptyNodes);
+                Assert(failures, meshNodes == 25,
+                       "MESH 节点应为 25（16 个 base 网格 + 9 个 show），实际 " + meshNodes);
+
+                // 方向性断言：走廊必须沿世界 +Z 展开（FbxYaw 之后）。搞反轴/反方向都在这里断掉。
+                // 只看 Renderer.bounds —— 世界量才是米（§9.2），不许"修"成 Mesh.bounds。
+                var r = new Bounds(Vector3.zero, Vector3.zero);
+                bool first = true;
+                int rendCount = 0;
+                foreach (var mr in inst.GetComponentsInChildren<Renderer>())
+                {
+                    if (first) { r = mr.bounds; first = false; }
+                    else r.Encapsulate(mr.bounds);
+                    rendCount++;
+                }
+                Debug.Log("[VERIFY] 聚合包围盒（FbxYaw=" + Bootstrap3D.FbxYaw + "）size=" + r.size
+                          + " min=" + r.min + " max=" + r.max + " 参与聚合的 Renderer=" + rendCount);
+                Assert(failures, rendCount == 25,
+                       "参与聚合的 Renderer 应为 25（EMPTY 无 Renderer），实际 " + rendCount);
+                Assert(failures, r.size.z > 20f && r.size.z > r.size.x * 2f,
+                       "包围盒 Z 方向最长（实测 size=" + r.size + "）");
+                Assert(failures, r.size.y > (BadSample ? 90f : 2.5f) && r.size.y < (BadSample ? 110f : 3.6f),
+                       "高度约 3m（实测 " + r.size.y + "）" + (BadSample ? BadTag : ""));
+                Assert(failures, r.min.y > -0.25f, "地面不穿到地板下（实测 min.y=" + r.min.y + "）");
+                // Step 6 分支表要求区分"z 最长"与"z 最长但朝 -Z 延伸"（后者玩家出门就撞端墙），
+                // 单靠 size 判不出来，所以这里补符号：端墙必须在 +Z 前方。
+                Assert(failures, r.max.z > 23f && r.min.z > -0.5f,
+                       "走廊朝世界 +Z 延伸、端墙在前方（实测 min.z=" + r.min.z + " max.z=" + r.max.z + "）");
+
+                // (4) 解析器直接对 FBX 层级跑通（RULING B：这条才是承载契约的检查）
+                var entries = AnomalyResolver.Resolve(inst.transform);
+                Assert(failures, entries.Count == (BadSample ? 3 : 10),
+                       "解析出 10 组异常，实际 " + entries.Count + (BadSample ? BadTag : ""));
+                int showTotal = 0, hideTotal = 0;
+                foreach (var e in entries)
+                {
+                    Assert(failures, AnomalyTitles.Table.ContainsKey(e.id), "id 在标题表里：" + e.id);
+                    Assert(failures, e.show.Count + e.hide.Count > 0, "该组至少指认一个物体：" + e.id);
+                    showTotal += e.show.Count;
+                    hideTotal += e.hide.Count;
+                }
+                if (entries.Count > 0)
+                {
+                    Assert(failures, entries[0].id == "anom01", "首组应为 anom01，实际 " + entries[0].id);
+                    var hideNames = new List<string>();
+                    foreach (var g in entries[0].hide) hideNames.Add(g.name);
+                    Debug.Log("[VERIFY] anom01 hide 指认到的 base 目标: " + string.Join(",", hideNames));
+                    Assert(failures, entries[0].hide.Count == (BadSample ? 99 : 6),
+                           "anom01 应指认 6 盏灯，实际 " + entries[0].hide.Count
+                           + (BadSample ? BadTag : ""));
+                }
+                else
+                {
+                    failures.Add("异常表为空，后面三条分组断言无从执行（前缀名没进 FBX？）");
+                }
+                Assert(failures, hideTotal >= 12, "hide 指认总数 ≥12，实际 " + hideTotal);
+                Assert(failures, showTotal >= 9, "show 物体总数 ≥9，实际 " + showTotal);
+                // Task 7 要整只把灰盒换成 FBX，两边的引用集必须逐字相等（灰盒实测 9 show + 13 hide = 22）
+                Assert(failures, showTotal == 9 && hideTotal == 13,
+                       "与 Task 5 灰盒同集：show=9 且 hide=13（合计 22 refs），实际 "
+                       + showTotal + "+" + hideTotal);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(tmp);
+                Debug.Log("[VERIFY] verify_fbx_stage 与实例已 DestroyImmediate，无场景残骸（资产未触碰）");
+            }
+
+            if (failures.Count == 0)
+                Debug.Log("[VERIFY] PASS: Corridor.fbx 契约成立（根名 + base/anom 按 IsAnomalyWireName 二分 + "
+                          + "名字逐字保真 + 19 个 EMPTY 名字载体 + 包围盒 Z 最长且朝 +Z + 解析出 10 组 22 refs）");
+            else
+            {
+                foreach (var f in failures)
+                    Debug.LogError("[VERIFY] FAIL: " + f);
+                Debug.LogError("[VERIFY] FAIL: 共 " + failures.Count + " 项 —— " + string.Join(" | ", failures));
+            }
+        }
+
+        /// <summary>
+        /// Corridor.fbx 专用逐节点走查：每个节点打一行证据（lossyScale + mesh.bounds + renderer.bounds，
+        /// EMPTY 节点打 "no renderer"），并累计 MESH/EMPTY/父级为 EMPTY 三类计数。
+        /// 与 ProbeHierarchy 用的 Walk 不同签名、不同用途（那个只收集 mesh 节点），不复用也不重定义 FindByName。
+        /// </summary>
+        static void WalkFbx(Transform t, string parentKind, bool isRoot, List<string> names,
+                            ref int emptyNodes, ref int meshNodes, ref int emptyParented)
+        {
+            var mf = t.GetComponent<MeshFilter>();
+            var rend = t.GetComponent<Renderer>();
+            bool isMesh = mf != null;
+            string kind = isMesh ? "MESH" : (isRoot ? "ROOT" : "EMPTY");
+            names.Add(t.name);
+            if (isMesh) meshNodes++;
+            else if (!isRoot) emptyNodes++;
+            bool parentIsEmpty = parentKind == "EMPTY";
+            if (parentIsEmpty) emptyParented++;
+
+            var meshSize = isMesh && mf.sharedMesh != null ? mf.sharedMesh.bounds.size : Vector3.zero;
+            Debug.Log("[VERIFY] 节点 " + t.name
+                      + " 自身=" + kind + " 父级=" + parentKind
+                      + " lossyScale=" + t.lossyScale
+                      + " local=" + t.localPosition
+                      + " world=" + t.position
+                      + (isMesh ? " meshBoundsSize(非米)=" + meshSize
+                                + (rend != null ? " rendBounds(米)=" + rend.bounds.size
+                                                + "/" + rend.bounds.center : " NO RENDERER")
+                          : " no renderer"));
+
+            for (int i = 0; i < t.childCount; i++)
+                WalkFbx(t.GetChild(i), kind, false, names, ref emptyNodes, ref meshNodes, ref emptyParented);
+        }
+
         /// <summary>本文件惯例：断言即打印，失败聚合到调用方自己的局部 failures。</summary>
         static void Assert(List<string> failures, bool ok, string what)
         {

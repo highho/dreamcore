@@ -29,6 +29,13 @@ namespace Dreamcore.EditorTools
         const string ProfilePath = "Assets/_Project/Settings/VolumeProfile-Dreamcore.asset";
         const string FontPath = "Assets/_Project/Fonts/simhei.ttf";
 
+        // FBX 根绕 Y 的旋转角度：走廊长度必须落在世界 +Z。唯一落点，装配与验收都读它。
+        // 实测（Task 6 Step 6，logs/verify-fbx-yaw.log 用 -90f 跑）：-90f 下 size=(2.91,3.10,24.05)
+        // 但 min.z=-24.05/max.z=0 —— 长度确实最长却朝 -Z 延伸（导入器先把 Blender X/Y 都翻了号），
+        // 玩家一出门就撞端墙。按 brief 的分支表翻成 90f：实测 size.z=24.05、min.z=0/max.z=24.05。
+        // 代价见 blender/README.md 轴映射小节：Blender +Y 那侧落到 Unity -X（左右与灰盒对调）。
+        public const float FbxYaw = 90f;
+
         const float CorridorWidth = 2.4f;
         const float CorridorHeight = 3f;
         const float CorridorLength = 24f;
