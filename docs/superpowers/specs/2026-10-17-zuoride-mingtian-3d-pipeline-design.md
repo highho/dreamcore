@@ -276,3 +276,16 @@ Unity +Z 用）。
 - 计划原文的 `grep -o "\[VERIFY\] FAIL[^"]*"` 引号不配对（`[^"]` 里的 `"` 提前闭合字符串），
   `bash -n` 直接报 unexpected EOF；改单引号 `'\[VERIFY\] FAIL[^"]*'` 才跑通。
 
+### 9.2 前缀式 wire 契约裁定（Task 1 修复轮，2026-10-17）
+
+§9.1 实测证明路径式集合契约在 FBX 通道下拿不到层级节点（`Probe.fbx` 严格 grep `base|anom` 零命中），
+Empty 包裹虽能保住路径却带来 `lossyScale=100` + 顶点预除 100 的坑，故主控裁定采用**前缀式 wire 契约**：
+Blender 集合只作编排侧容器、不再指望它进 FBX，异常语义改由对象名前缀语法承载 —— base 物件保持裸名
+（`wallL`/`floor`…），出现物件用 `anom<NN>_show_<leaf>`，消失代理用 `anom<NN>_hide_<base目标名>_off`。
+探针已按此改名并新增第二个 show 物件（`anom01_show_probeCubeB`）证明语法对多前缀、多桶成员都成立：
+Unity 侧实测 `worldSize=(1,1,1)`（节点 `lossyScale=100` 与 `boundsSize=0.01` 相消，净尺度 1m）、
+`rootLossyScale=(1,1,1)`、hide→base 目标映射可解析，`+Y分离=10` 复述 Blender +Z→Unity +Y 的轴向事实。
+`Verify3D.ProbeHierarchy()` 已把这三条（名保真/base 裸名不被前缀误伤/wire 往返 + 几何尺度断言）做成有牙的门，
+坏样本（注入不存在的 wire 名）会 FAIL、clean 才 PASS。**语法唯一真相将由 Task 3 的 `AnomalyResolver` 定义，
+§3 待 Task 3 重写，本轮不动 §3。**
+

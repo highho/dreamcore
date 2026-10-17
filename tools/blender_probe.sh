@@ -29,9 +29,17 @@ grep -q '\[PROBE\] exported' "$JAM_ROOT/logs/probe-blender.log" \
 [ -f "$FBX" ] || { echo "!! FBX 产物不在位：$FBX"; exit 1; }
 
 echo "[2/2] Unity batchmode 层级断言（期望 $EXPECT）..."
+# 防 stale-log 假绿：Unity 若在打开日志前就中止（许可证抖动、工程锁、崩溃），上一轮的
+# [VERIFY] PASS 会留在 $VLOG 里被本门误读成 PASS。故：跑之前删日志、立一个时间戳标记，
+# 跑之后强制要求日志存在且比标记新 —— 三者缺一律判红退出，绝不认陈旧日志。
+MARK="$JAM_ROOT/logs/.probe-marker"
+rm -f "$VLOG" "$MARK"
+touch "$MARK"
 "$UNITY" -batchmode -quit -projectPath "$PROJ" \
   -executeMethod Dreamcore.EditorTools.Verify3D.ProbeHierarchy \
   -logFile "$VLOG" || true
+[ -f "$VLOG" ] || { echo "!! Unity 没写日志 $VLOG（可能在开日志前中止）"; exit 1; }
+[ "$VLOG" -nt "$MARK" ] || { echo "!! 日志不比本轮标记新，疑似陈旧/未刷新（拒绝据此判绿）"; exit 1; }
 grep -E '\[VERIFY\]|error CS' "$VLOG" || true
 grep -q 'error CS' "$VLOG" \
   && { echo "!! Verify3D 编译失败，见 $VLOG"; exit 1; }
