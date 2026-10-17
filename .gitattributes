@@ -1,0 +1,17 @@
+# 行尾归一：仓库内一律 LF，避免 Windows checkout 转 CRLF 造成全文件假 diff
+* text=auto eol=lf
+
+# 真二进制扩展名不参与换行转换
+*.dll binary
+*.exe binary
+*.zip binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.wav binary
+*.ttf binary
+*.fbx binary
+*.blend binary
+*.14 binary
+
+# Unity 的 .unity / .asset / .meta 是 YAML 文本，走上面的 LF 归一，不标 binary
