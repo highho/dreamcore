@@ -211,16 +211,22 @@ namespace Dreamcore.EditorTools
         /// Task 3 验收口：解析器 AnomalyResolver.Resolve 对既有 Probe.fbx 夹具的端到端自证。
         /// 断言 ①条目数/id/title ②show 收的是接线物体本身 ③hide 收到剥 _off 后的 base 目标
         /// （代理自己绝不进 hide）④SettleToNormal/Apply/Revert 的开合逐字还原
-        /// ⑤IsAnomalyWireName 真值表。坏样本开关沿用 VERIFY_BAD=1：把期望条目数翻成 3，
-        /// 默认路径绝不用假期望。临时根最后必删，不留场景残骸、不改夹具预制。
+        /// ⑤IsAnomalyWireName 真值表。坏样本开关沿用 VERIFY_BAD=1：期望条目数恒保持真实值 1
+        /// （不再用 count 短路掉 else 块），改在 else 块内注入 4 条彼此独立的坏期望——
+        /// title 逐字 / show 本体指认 / hide→base 目标名 / IsAnomalyWireName 真值表一项。
+        /// 一次坏跑即产出 4 行各自独立的 [VERIFY] FAIL，每分支各证一次红；默认路径绝不用假期望。
+        /// 临时根最后必删，不留场景残骸、不改夹具预制。
         /// </summary>
         public static void VerifyResolveProbe()
         {
             var failures = new List<string>();
-            int expectedEntries = BadSample ? 3 : 1;
+            // 坏样本不再靠"条目数"短路：期望条目数恒 = 真实值 1，让 else 块两种模式都进得去。
+            // 真正的坏期望注入全部下移到 else 块内部（title / show 本体 / hide 目标 / wire 真值表），
+            // 每条独立成一红，聚合进同一个 failures 列表逐行打印。
+            const int expectedEntries = 1;
             if (BadSample)
-                Debug.Log("[VERIFY] ---- 坏样本注入（仅 VERIFY_BAD=1）---- 期望条目数翻成 "
-                          + expectedEntries + "（真实为 1），默认路径期望为 1");
+                Debug.Log("[VERIFY] ---- 坏样本注入（仅 VERIFY_BAD=1）---- 期望条目数保持真实值 1（不靠 count 短路），"
+                          + "改在 else 块内注入 4 条独立坏期望：title / show 本体指认 / hide→base 目标名 / IsAnomalyWireName 真值表一项；默认路径绝不用假期望");
 
             AssetDatabase.ImportAsset(ProbePath, ImportAssetOptions.ForceSynchronousImport);
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(ProbePath);
@@ -248,6 +254,7 @@ namespace Dreamcore.EditorTools
                     Debug.Log("[VERIFY] 条目数符合期望: " + entries.Count);
                     var e = entries[0];
                     if (e.id != "anom01") failures.Add("id 应为 anom01，实际: " + e.id);
+                    // 坏样本注入①（title 逐字）：else 块两种模式都会跑到这里，坏期望真正生效、独立成一行 FAIL
                     string wantTitle = BadSample ? "故意错的标题" : AnomalyTitles.Table["anom01"];
                     if (e.title != wantTitle)
                         failures.Add("title 不符: " + e.title + "（期望 " + wantTitle + "）");
@@ -256,10 +263,15 @@ namespace Dreamcore.EditorTools
 
                     // (2) show：收的就是接线物体本身
                     var wantShow = new List<string> { "anom01_show_shadeFigure", "anom01_show_probeCubeB" };
+                    // 坏样本注入②（show 本体指认）：往期望集塞一个夹具里绝不存在的 show 名。真实 e.show
+                    // 仍只两项，故 count==2 分支照进、本体循环对这个假名 FindByName 必为 null，独立成一行 FAIL。
+                    if (BadSample)
+                        wantShow.Add("anom99_show_no_such_object");
                     if (e.show.Count != 2)
                         failures.Add("show.Count 应为 2，实际: " + e.show.Count);
                     else
                     {
+                        int failuresBeforeShow = failures.Count;
                         foreach (var name in wantShow)
                         {
                             var t = FindByName(tempRoot.transform, name);
@@ -267,14 +279,22 @@ namespace Dreamcore.EditorTools
                             if (go == null || !e.show.Contains(go))
                                 failures.Add("show 缺接线物体本身: " + name);
                         }
-                        Debug.Log("[VERIFY] show 两项均为接线物体本身: " + string.Join(",", wantShow));
+                        // 只有本段一条失败都没加时才打"已核"，否则红跑里这句会被误读成通过（沿用 ProbeHierarchy 口径）。
+                        if (failures.Count == failuresBeforeShow)
+                            Debug.Log("[VERIFY] show 两项均为接线物体本身: " + string.Join(",", wantShow));
+                        else
+                            Debug.Log("[VERIFY] ---- 实测 ---- show 本体指认有失败，见上方 FAIL（本段 "
+                                      + (failures.Count - failuresBeforeShow) + " 条）");
                     }
 
                     // (3) hide：代理剥 _off 后指认到 base 目标；代理自己绝不进 hide
+                    // 坏样本注入③（hide→base 目标名）：把期望目标名翻成 base 里绝不存在的名字。真实
+                    // e.hide[0].name 仍是 floor，故目标名比较必然判红，独立成一行 FAIL。
+                    string wantHideTarget = BadSample ? "no_such_base_target" : "floor";
                     if (e.hide.Count != 1)
                         failures.Add("hide.Count 应为 1，实际: " + e.hide.Count);
-                    else if (e.hide[0] == null || e.hide[0].name != "floor")
-                        failures.Add("hide[0] 应为 base 目标 floor，实际: "
+                    else if (e.hide[0] == null || e.hide[0].name != wantHideTarget)
+                        failures.Add("hide[0] 应为 base 目标 " + wantHideTarget + "，实际: "
                                      + (e.hide[0] == null ? "null" : e.hide[0].name));
                     else
                         Debug.Log("[VERIFY] hide[0]=floor（代理 anom01_hide_floor_off 已指认 base 目标）");
@@ -317,7 +337,9 @@ namespace Dreamcore.EditorTools
                 // (5) IsAnomalyWireName 真值表（口径 = WireGrammar：两位数字 + show|hide 桶）
                 CheckWireName(failures, "anom01_show_x", true);
                 CheckWireName(failures, "anom01_hide_x_off", true);
-                CheckWireName(failures, "floor", false);
+                // 坏样本注入④（wire 真值表一项）：把 "floor" 的期望翻成 true。真实判定恒为 false
+                // （裸名不匹配前缀语法），故这一项必然判红，独立成一行 FAIL。其余五项口径不变。
+                CheckWireName(failures, "floor", BadSample ? true : false);
                 CheckWireName(failures, "wallL", false);
                 CheckWireName(failures, "anom1_show_x", false);
                 CheckWireName(failures, "Calendar2000_mark", false);
