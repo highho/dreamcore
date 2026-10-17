@@ -261,9 +261,26 @@ ProbeTmp/anom/01/hide/t_floor_off <mesh> local=(0.00, 0.00, 0.30) world=(0.00, 3
 ProbeTmp/base/t_floor <mesh> local=(0.00, 0.00, 0.10) world=(0.00, 10.00, 0.00) lossy=(100.00, 100.00, 100.00) boundsSize=(0.01, 0.01, 0.01)
 ```
 
-层级路径整条保住，世界位置也仍是 10/20/30 米；**代价**是导入后节点 `lossyScale=100`、
-网格顶点被预除 100（`boundsSize=0.01`），净尺寸才对——任何读 `localScale`/`localPosition`
-或按包围盒算尺寸的代码都会踩这个 100 倍坑。前缀式命名（计划表第 2 行）没有这个副作用。
+层级路径整条保住，世界位置也仍是 10/20/30 米。
+
+**归因更正（Task 1 第二轮，2026-10-17；依据本任务 clean 跑的实际输出，不是推测）**：本节原文一度把
+`lossyScale=100` + 顶点预除 100 记成"Empty 包裹带来的代价"，并暗示前缀式没有这个副作用。**这条归因已被
+证伪。** 已提交的**扁平、无包裹**的前缀式 `Probe.fbx`（`logs/verify-probe.log`）五个节点**全部**报
+`lossyScale=(100.00, 100.00, 100.00)` / `boundsSize=(0.01, 0.01, 0.01)` / `worldSize=(1.00, 1.00, 1.00)`，
+而 `rootLossyScale=(1.00, 1.00, 1.00)`。也就是说：**100 倍局部缩放配上预除 100 的顶点，是 Blender 导出 →
+Unity 导入这条通道本身的属性**（cm→m 单位缩放被写进节点 transform、几何同步预除），与有没有 Empty 包裹无关。
+净**世界**尺寸是对的：1m 立方体读到的仍是 1m。
+
+**由此定下后续任务一律遵守的规则：FBX 导入的节点里，只有"世界量"是米。**
+可以按米读的：`Renderer.bounds.size/center`、`Collider.bounds.size/center`。
+**不是**米的：`Transform.localScale`（这里读到 100）、`Mesh.bounds`（读到 0.01）、`BoxCollider.size`、
+`Collider.center`（局部空间），以及处在被缩放祖先之下的 `localPosition`。想按米算尺寸/摆位，就走世界量，
+别在局部空间做算术。
+
+**Empty 包裹仍然是被拒绝的那条出路**，但拒绝理由要写准：通道级的 100× 它躲不掉（前缀式同样带着），
+它**额外**还伤害两件事 —— ① 连子节点的 `localPosition` 也被一起除/乘（实测 `local=(0.00, 0.00, 0.30)` →
+`world=(0.00, 30.00, 0.00)`），把最后一层局部读数也废掉；② 100× 落在**父级**而不是叶子，任何想给父节点
+手摆 `Transform` 的代码会整枝一起歪。前缀式只保留"叶子 localScale=100"这一份通道税，不增加这两条。
 
 **状态**：§3 的路径式契约按原样**不成立**。退化成前缀式、还是走 Empty 包裹，属跨任务契约
 变更（牵动 Task 3 解析器 / Task 6 建模 / Task 7 装配），由主控裁定后再改 §3；本任务不自行
@@ -279,13 +296,27 @@ Unity +Z 用）。
 ### 9.2 前缀式 wire 契约裁定（Task 1 修复轮，2026-10-17）
 
 §9.1 实测证明路径式集合契约在 FBX 通道下拿不到层级节点（`Probe.fbx` 严格 grep `base|anom` 零命中），
-Empty 包裹虽能保住路径却带来 `lossyScale=100` + 顶点预除 100 的坑，故主控裁定采用**前缀式 wire 契约**：
+Empty 包裹虽能保住路径，却要**在通道级 100× 之外**再叠两重伤害（连子节点 `localPosition` 一起除/乘、把 100×
+放到父级而非叶子），故主控裁定采用**前缀式 wire 契约**：
 Blender 集合只作编排侧容器、不再指望它进 FBX，异常语义改由对象名前缀语法承载 —— base 物件保持裸名
 （`wallL`/`floor`…），出现物件用 `anom<NN>_show_<leaf>`，消失代理用 `anom<NN>_hide_<base目标名>_off`。
 探针已按此改名并新增第二个 show 物件（`anom01_show_probeCubeB`）证明语法对多前缀、多桶成员都成立：
 Unity 侧实测 `worldSize=(1,1,1)`（节点 `lossyScale=100` 与 `boundsSize=0.01` 相消，净尺度 1m）、
-`rootLossyScale=(1,1,1)`、hide→base 目标映射可解析，`+Y分离=10` 复述 Blender +Z→Unity +Y 的轴向事实。
-`Verify3D.ProbeHierarchy()` 已把这三条（名保真/base 裸名不被前缀误伤/wire 往返 + 几何尺度断言）做成有牙的门，
-坏样本（注入不存在的 wire 名）会 FAIL、clean 才 PASS。**语法唯一真相将由 Task 3 的 `AnomalyResolver` 定义，
+`rootLossyScale=(1,1,1)`、`rootRot=(0,0,0)` 而逐节点 `worldRot=(270.02,0,0)`（导入器把 Z-up→Y-up 的
+轴向重排**下放到每个节点自己**，不是放在根上）、hide→base 目标映射可解析，`+Y分离=10` 复述轴向事实。
+
+**这组读数是 §9.1 归因更正的出处**：`lossyScale=100` + 顶点预除 100 **不是** Empty 包裹带来的，
+它是 Blender 导出 → Unity 导入这条**通道本身的属性**，在扁平、无包裹、前缀命名的节点上就这么测出来的。
+因此对后续所有任务定规则：**FBX 导入的节点里只有世界量是米** —— 可信的是 `Renderer.bounds.size/center`、
+`Collider.bounds.size/center`；`Transform.localScale`（读到 100）、`Mesh.bounds`（读到 0.01）、
+`BoxCollider.size`、`Collider.center`（局部）、以及被缩放祖先之下的 `localPosition` **都不是米**。
+**显式警告：M0 门变绿不代表局部空间数字是米。** 门只证名保真与净世界尺度，局部量一律不许拿来算尺寸或摆位。
+Empty 包裹仍被拒绝，理由见 §9.1：它额外把子节点 `localPosition` 也一起除了（`local=(0,0,0.30)` →
+`world=(0,30,0)`），并把 100× 从叶子搬到父级。
+
+`Verify3D.ProbeHierarchy()` 已把这几条（名保真/base 裸名不被前缀误伤/wire 往返 + hide 目标解析/几何尺度与
+rootScale 断言）做成有牙的门，且**每条分支都在 `VERIFY_BAD=1` 的坏样本跑里亲眼红过**：一次注入同时打出
+逐项 8 行 `[VERIFY] FAIL`（缺名 1 行 / hide 目标解析失败 1 行 / 世界尺寸越容差 5 行 / root lossyScale 1 行）
+加 1 行汇总，clean 才 PASS。**语法唯一真相将由 Task 3 的 `AnomalyResolver` 定义，
 §3 待 Task 3 重写，本轮不动 §3。**
 
