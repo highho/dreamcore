@@ -1,38 +1,31 @@
 #!/bin/sh
 # ============================================================
-# 一键出货：Bootstrap（重建 Catalog/场景）→ Windows x64 构建 → zip
-# 用法: ./tools/build.sh [2d|3d]    （默认 2d；3d 走 Main3D 入口）
+# 一键出货：Bootstrap3D（重建 Main3D 场景）→ 构建入口切到 Main3D → Windows x64 构建 → zip
+# 用法: ./tools/build.sh
+# 2D 保底轨道已于 2026-10-17 由用户裁定废弃（"2d的可以扔了"），本脚本不再有模式分支。
 # ============================================================
 set -eu
 
-MODE="${1:-2d}"
 JAM_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 UNITY="/e/Unity/Unity/Editor/Editor/Unity.exe"
 PROJ="$JAM_ROOT/dreamcore"
-if [ "$MODE" = "3d" ]; then OUT="$JAM_ROOT/builds/win64-3d"; else OUT="$JAM_ROOT/builds/win64"; fi
+OUT="$JAM_ROOT/builds/win64-3d"
 NAME="Dreamcore"
 mkdir -p "$OUT" "$JAM_ROOT/logs"
 
-echo "[1/3] Bootstrap（重建 Catalog/场景，幂等；模式=$MODE）..."
+echo "[1/3] Bootstrap3D（重建 Main3D 场景 + 收养 FBX，幂等）..."
 "$UNITY" -batchmode -quit -projectPath "$PROJ" \
-  -executeMethod Dreamcore.EditorTools.Bootstrap.Run \
-  -logFile "$JAM_ROOT/logs/bootstrap-final.log"
-if grep -q "error CS" "$JAM_ROOT/logs/bootstrap-final.log"; then
-  echo "!! 编译错误，见 logs/bootstrap-final.log"; exit 1
+  -executeMethod Dreamcore.EditorTools.Bootstrap3D.Run \
+  -logFile "$JAM_ROOT/logs/bootstrap3d.log"
+if grep -q "error CS" "$JAM_ROOT/logs/bootstrap3d.log"; then
+  echo "!! 编译错误，见 logs/bootstrap3d.log"; exit 1
 fi
 
-if [ "$MODE" = "3d" ]; then
-  "$UNITY" -batchmode -quit -projectPath "$PROJ" \
-    -executeMethod Dreamcore.EditorTools.Bootstrap3D.Run \
-    -logFile "$JAM_ROOT/logs/bootstrap3d.log"
-  grep -q "error CS" "$JAM_ROOT/logs/bootstrap3d.log" && { echo "!! 3D 编译错误"; exit 1; }
-  "$UNITY" -batchmode -quit -projectPath "$PROJ" \
-    -executeMethod Dreamcore.EditorTools.Bootstrap3D.Activate3D \
-    -logFile "$JAM_ROOT/logs/bootstrap3d.log"
-else
-  "$UNITY" -batchmode -quit -projectPath "$PROJ" \
-    -executeMethod Dreamcore.EditorTools.Bootstrap3D.Activate2D \
-    -logFile "$JAM_ROOT/logs/bootstrap-final.log"
+"$UNITY" -batchmode -quit -projectPath "$PROJ" \
+  -executeMethod Dreamcore.EditorTools.Bootstrap3D.Activate3D \
+  -logFile "$JAM_ROOT/logs/activate3d.log"
+if grep -q "error CS" "$JAM_ROOT/logs/activate3d.log"; then
+  echo "!! 切换构建入口失败，见 logs/activate3d.log"; exit 1
 fi
 
 echo "[2/3] 构建 Windows x64（IL2CPP）..."

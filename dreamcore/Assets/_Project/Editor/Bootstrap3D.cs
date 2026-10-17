@@ -12,14 +12,12 @@ using UnityEngine.UI;
 namespace Dreamcore.EditorTools
 {
     /// <summary>
-    /// 3D 轨道一键引导（与 2D 模板完全隔离，不动 Main.unity）：
+    /// 3D 轨道一键引导（本仓库唯一的出货轨道；2D 保底已于 2026-10-17 由用户裁定废弃并删除）：
     ///   Unity.exe -batchmode -quit -projectPath <proj> -executeMethod Dreamcore.EditorTools.Bootstrap3D.Run
     /// 生成 Main3D.unity：第一人称 + 真实走廊 FBX（Corridor.fbx，MeshRenderer 涂占位材质并补碰撞体、
     ///   Light_ 锚点收养点光 + 灯闪、extraFigure 挂 billboard）+ 两端判定门 + 复用梦核滤镜 + HUD。
     ///
-    /// 构建入口切换（jam 中空余时间启用 3D）：
-    ///   -executeMethod Dreamcore.EditorTools.Bootstrap3D.Activate3D   → 后续 build 出 3D 版
-    ///   -executeMethod Dreamcore.EditorTools.Bootstrap3D.Activate2D   → 切回 2D 版
+    /// 构建入口：-executeMethod Dreamcore.EditorTools.Bootstrap3D.Activate3D → 后续 build 出 3D 版。
     ///
     /// 走廊实测世界尺寸（套 FbxYaw=90 后，logs/verify-fbx.log）：宽 2.91m × 高 3.10m × 长 24.05m，
     /// 玩家沿 +Z 行走（z 从 0 到 24.05）。CorridorWidth/Height/Length 三个常量保留作文档参考。
@@ -27,7 +25,6 @@ namespace Dreamcore.EditorTools
     public static class Bootstrap3D
     {
         const string Scene3DPath = "Assets/_Project/Scenes/Main3D.unity";
-        const string Scene2DPath = "Assets/_Project/Scenes/Main.unity";
         const string ProfilePath = "Assets/_Project/Settings/VolumeProfile-Dreamcore.asset";
         const string FontPath = "Assets/_Project/Fonts/simhei.ttf";
         const string CorridorFbxPath = "Assets/Content/3D/Corridor.fbx";
@@ -55,12 +52,6 @@ namespace Dreamcore.EditorTools
         {
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(Scene3DPath, true) };
             Debug.Log("[Bootstrap3D] 构建入口已切到 3D（Main3D）。");
-        }
-
-        public static void Activate2D()
-        {
-            EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(Scene2DPath, true) };
-            Debug.Log("[Bootstrap3D] 构建入口已切回 2D（Main）。");
         }
 
         // ---------- 场景 ----------
