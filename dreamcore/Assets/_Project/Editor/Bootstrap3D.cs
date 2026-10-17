@@ -72,7 +72,6 @@ namespace Dreamcore.EditorTools
             Material matWall = MakeMat("Wall", new Color(0.55f, 0.54f, 0.50f));
             Material matWainscot = MakeMat("Wainscot", new Color(0.22f, 0.38f, 0.26f)); // 绿漆墙裙
             Material matCeil = MakeMat("Ceiling", new Color(0.62f, 0.61f, 0.58f));
-            Material matBlack = MakeUnlit("ShadeBlack", new Color(0.02f, 0.02f, 0.02f));
 
             float halfW = CorridorWidth * 0.5f;
             float halfL = CorridorLength * 0.5f;
@@ -101,26 +100,18 @@ namespace Dreamcore.EditorTools
                 lights.Add(lg.AddComponent<LightFlicker>());
             }
 
-            // 黑影贴片（默认隐藏，异常时激活）
-            var shades = new List<ShadeFigure>();
-            foreach (var (x, z) in new[] { (0.6f, 8f), (-0.7f, 14f), (0.55f, 20f) })
-            {
-                var q = MakeQuad("Shade_" + (int)z, root, new Vector3(x, 0.9f, z), matBlack);
-                var mr = q.GetComponent<MeshRenderer>();
-                mr.shadowCastingMode = ShadowCastingMode.Off;
-                mr.receiveShadows = false;
-                q.transform.localScale = new Vector3(0.8f, 1.8f, 1f);
-                shades.Add(q.AddComponent<ShadeFigure>());
-            }
-
             // 判定门：起点=回头，尽头=前进
             MakeGate("GateBack", root, new Vector3(0f, 1.5f, 1.2f), false);
             MakeGate("GateForward", root, new Vector3(0f, 1.5f, CorridorLength - 1.2f), true);
+
+            // 灰盒异常目录：base 本体 + anom<NN>_show/hide 前缀叶子（Task 7 换 FBX 后整段删除）
+            GreyboxAnomalies.Build(root, lights);
 
             // Player：根(CharacterController) + 子相机
             var player = new GameObject("Player");
             player.tag = "Player";
             player.transform.position = new Vector3(0f, 0.1f, 1.8f);
+            player.AddComponent<CharacterController>(); // 场景内序列化：装配段要能读到，运行期 FPC.Awake 会 GetComponent 复用
             var fpc = player.AddComponent<FirstPersonController>();
             var camGo = new GameObject("Main Camera");
             camGo.tag = "MainCamera";
@@ -147,6 +138,11 @@ namespace Dreamcore.EditorTools
             // 玩法循环
             var loopGo = new GameObject("GameLoop");
             var loop = loopGo.AddComponent<Loop3D>();
+            // 灰盒目录 → 解析 → 钉成"正常"初态 → 交给 Loop3D（root 必须与 GreyboxAnomalies.Build 同一个）
+            var entries = AnomalyResolver.Resolve(root);
+            foreach (var e in entries) e.SettleToNormal();
+            loop.anomalies = entries;
+            if (entries.Count == 0) Debug.LogError("[Bootstrap3D] 异常表为空，玩法不成立。");
 
             // HUD（Overlay：文字清晰，场景由 URP 滤镜盖住）
             CreateHud();

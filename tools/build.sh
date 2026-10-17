@@ -9,7 +9,7 @@ MODE="${1:-2d}"
 JAM_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 UNITY="/e/Unity/Unity/Editor/Editor/Unity.exe"
 PROJ="$JAM_ROOT/dreamcore"
-OUT="$JAM_ROOT/builds/win64"
+if [ "$MODE" = "3d" ]; then OUT="$JAM_ROOT/builds/win64-3d"; else OUT="$JAM_ROOT/builds/win64"; fi
 NAME="Dreamcore"
 mkdir -p "$OUT" "$JAM_ROOT/logs"
 

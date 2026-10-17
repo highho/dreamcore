@@ -546,6 +546,87 @@ namespace Dreamcore.EditorTools
             }
         }
 
+        /// <summary>
+        /// 装配段（batchmode -executeMethod Dreamcore.EditorTools.Verify3D.VerifyAssembly）。
+        /// 验 Main3D.unity 里灰盒异常目录真的接进了 Loop3D，且初始态是"正常"。
+        /// 形态沿用本文件真实惯例：入口自持局部 failures + 复用既有 Assert(failures,ok,what) 三参断言 +
+        /// 逐行 [VERIFY] FAIL: + 汇总行 + 单行 [VERIFY] PASS（本文件没有共享 fails/Report()，不新增）。
+        /// Dreamcore.D3 的类型（Loop3D/ShadeFigure/TriggerGate/FirstPersonController）一律全限定，
+        /// 本文件 using 区只有 System*/UnityEditor/UnityEngine，无 Dreamcore/Dreamcore.D3；
+        /// AnomalyTitles/AnomalyEntry/AnomalyResolver 在 Dreamcore 下，由 Dreamcore.EditorTools 外层命名空间直接可见。
+        /// 坏样本开关沿用既有 static readonly bool BadSample（读 VERIFY_BAD），不重开环境变量。
+        /// </summary>
+        public static void VerifyAssembly()
+        {
+            var failures = new List<string>();
+            UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
+                "Assets/_Project/Scenes/Main3D.unity",
+                UnityEditor.SceneManagement.OpenSceneMode.Single);
+
+            var loop = UnityEngine.Object.FindFirstObjectByType<Dreamcore.D3.Loop3D>();
+            Assert(failures, loop != null, "Main3D 里必须有 Loop3D");
+            if (loop == null)
+            {
+                foreach (var f in failures) Debug.LogError("[VERIFY] FAIL: " + f);
+                Debug.LogError("[VERIFY] FAIL: 共 " + failures.Count + " 项（无 Loop3D，装配段终止）");
+                return;
+            }
+
+            Assert(failures, loop.anomalies.Count == 10, "异常表应有 10 条，实际 " + loop.anomalies.Count);
+
+            var ids = new HashSet<string>();
+            int refsTotal = 0;
+            foreach (var e in loop.anomalies)
+            {
+                Assert(failures, !string.IsNullOrEmpty(e.id) && ids.Add(e.id), "id 非空且不重复：" + e.id);
+                Assert(failures, AnomalyTitles.Table.ContainsKey(e.id), "id 在标题表里登记过：" + e.id);
+                Assert(failures, !string.IsNullOrEmpty(e.title), "title 非空：" + e.id);
+                Assert(failures, e.show.Count + e.hide.Count > 0, "至少指认一个物体：" + e.id);
+
+                foreach (var g in e.show)
+                {
+                    refsTotal++;
+                    Assert(failures, g != null, "show 引用非空：" + e.id);
+                    if (g != null) Assert(failures, !g.activeSelf, "show 物体初始必须关着（异常未出现）：" + e.id + "/" + g.name);
+                }
+                foreach (var g in e.hide)
+                {
+                    refsTotal++;
+                    Assert(failures, g != null, "hide 引用非空（指认失败会被丢弃，这里必须是真的）：" + e.id);
+                    if (g != null) Assert(failures, g.activeSelf, "hide 目标初始必须开着：" + e.id + "/" + g.name);
+                }
+            }
+            Assert(failures, refsTotal >= 15, "10 组异常总共至少指认 15 个物体，实际 " + refsTotal);
+
+            // 常驻黑影必须已经消失（显隐权交回目录）。Include 才抓得到"又亮起来的常驻人影"——
+            // 默认(Exclude)重载会滤掉 inactive，正确装配下反查到 0 个、断言空过没牙（Task 5 裁定 3）。
+            foreach (var sf in UnityEngine.Object.FindObjectsByType<Dreamcore.D3.ShadeFigure>(
+                         FindObjectsInactive.Include, FindObjectsSortMode.None))
+                Assert(failures, !sf.gameObject.activeSelf, "常驻黑影不该存在：" + sf.name);
+
+            // 判定门与玩家：一条前进 + 一条回头（两个门都是 active，brief 口径不动）
+            var gates = UnityEngine.Object.FindObjectsByType<Dreamcore.D3.TriggerGate>(FindObjectsSortMode.None);
+            int fwd = 0, back = 0;
+            foreach (var g in gates) { if (g.isForwardGate) fwd++; else back++; }
+            Assert(failures, fwd == 1 && back == 1, "两端判定门各一个，实际 前" + fwd + "/后" + back);
+            var fpc = UnityEngine.Object.FindFirstObjectByType<Dreamcore.D3.FirstPersonController>();
+            Assert(failures, fpc != null && fpc.GetComponent<CharacterController>() != null, "玩家带 CharacterController");
+            Assert(failures, Camera.main != null, "Main Camera 在位");
+
+            // 坏样本：VERIFY_BAD=1 时把 10 条翻成 999，独立成一行 FAIL（默认路径绝不执行）。
+            if (BadSample)
+                Assert(failures, loop.anomalies.Count == 999, "坏样本：这条断言必须失败");
+
+            if (failures.Count == 0)
+                Debug.Log("[VERIFY] PASS: 装配断言全过（10 条目录 + show 关/hide 开 + 无常驻黑影 + 两端门 + 玩家 + 相机）");
+            else
+            {
+                foreach (var f in failures)
+                    Debug.LogError("[VERIFY] FAIL: " + f);
+                Debug.LogError("[VERIFY] FAIL: 共 " + failures.Count + " 项 —— " + string.Join(" | ", failures));
+            }
+        }
+
         /// <summary>本文件惯例：断言即打印，失败聚合到调用方自己的局部 failures。</summary>
         static void Assert(List<string> failures, bool ok, string what)
         {
