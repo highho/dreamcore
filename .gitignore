@@ -1,0 +1,40 @@
+# --- Unity 生成物（可从工程重建，体积巨大）---
+dreamcore/[Ll]ibrary/
+dreamcore/[Tt]emp/
+dreamcore/[Oo]bj/
+dreamcore/[Bb]uild/
+dreamcore/[Bb]uilds/
+dreamcore/Logs/
+dreamcore/UserSettings/
+dreamcore/MemoryCaptures/
+dreamcore/Recordings/
+*.csproj
+*.sln
+*.user
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.opendb
+*.unitypackage
+
+# 注意：.meta 必须跟踪，Unity 靠它固定资源 GUID；上面没有忽略 *.meta
+
+# --- 构建产物与临时日志 ---
+builds/
+logs/
+
+# --- Blender 工作文件 ---
+*.blend1
+*.blend2
+*.bak
+blender/__pycache__/
+
+# --- 工具与系统 ---
+.qoder-credits/
+.vscode/
+.idea/
+__pycache__/
+*.pyc
+Thumbs.db
+.DS_Store
