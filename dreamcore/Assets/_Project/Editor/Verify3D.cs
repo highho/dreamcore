@@ -418,8 +418,9 @@ namespace Dreamcore.EditorTools
         {
             var failures = new List<string>();
             if (BadSample)
-                Debug.Log("[VERIFY] ---- 坏样本注入（仅 VERIFY_BAD=1）---- 3 条彼此独立的坏期望："
+                Debug.Log("[VERIFY] ---- 坏样本注入（仅 VERIFY_BAD=1）---- 4 条彼此独立的坏期望："
                           + "depth1 干净位翻成'应有异常' / Apply 后 show 期望翻成'仍关着' / "
+                          + "ended 门翻成'结局回调可重复派发'（OnEnd 期望 2 次） / "
                           + "brief 自带的那条不可能断言；默认路径绝不用这些假期望");
 
             // 造 10 个假异常（灰盒阶段就用空 GameObject，不需要美术）
@@ -466,7 +467,8 @@ namespace Dreamcore.EditorTools
                     loop.Report(!loop.HasAnomaly); // 永远答对
                     if (loop.Current != null) seen.Add(loop.Current.id);
                 }
-                Assert(failures, seen.Count == new HashSet<string>(seen).Count,
+                // 下限防退化：seed 12345 + cleanChance 0 固定抽出 6 层，只抽到 1 个的回归也必须判红。
+                Assert(failures, seen.Count == new HashSet<string>(seen).Count && seen.Count >= 5,
                        "同一局内异常不得重复，抽到 " + seen.Count + " 层、去重后 "
                        + new HashSet<string>(seen).Count + " 个");
                 Assert(failures, ended, "连答 7 次对应到深度 8 触发好结局，实际 ended=" + ended
@@ -475,17 +477,23 @@ namespace Dreamcore.EditorTools
                 // (4) 三错即败
                 loop.Begin(999);
                 int winFlags = 0;
-                loop.OnEnd += w => { if (!w) winFlags |= 1; };
+                // OnEnd 只在 Loop3D.Finish 里派发，所以"派发过几次结局"是 ended 门唯一可观察的副作用：
+                // Depth 在错误答案下不会变，单靠它无法证伪（删掉 if (ended) return; 也照样读 1）。
+                int endCalls = 0;
+                loop.OnEnd += w => { if (!w) winFlags |= 1; endCalls++; };
                 for (int i = 0; i < 3; i++) loop.Report(loop.HasAnomaly); // 永远答错
                 Assert(failures, (winFlags & 1) == 1,
                        "错满 3 次必须触发坏结局，实际 winFlags=" + winFlags
                        + " Mistakes=" + loop.Mistakes);
 
                 // (5) 结束后再判定必须被忽略（ended 门）
+                // 双观测：Depth 加上 OnEnd 派发次数。Depth 单独没牙（答错永远不增量，删掉守卫也读 1），
+                // 派发次数才有 —— 坏样本把期望翻成 2 次，独立证伪这一条。
                 int depthAfterLose = loop.Depth;
                 loop.Report(false);
-                Assert(failures, loop.Depth == depthAfterLose,
-                       "结束后再判定必须被忽略（ended 门），实际 " + loop.Depth + " vs " + depthAfterLose);
+                Assert(failures, loop.Depth == depthAfterLose && endCalls == (BadSample ? 2 : 1),
+                       "结束后再判定必须被忽略（ended 门），实际 Depth " + loop.Depth + " vs " + depthAfterLose
+                       + "、OnEnd 调用次数 " + endCalls + "（期望 " + (BadSample ? 2 : 1) + "）");
 
                 // (6) 干净层确实会出现（否则玩家可无脑回头）
                 bool anyClean = false;
