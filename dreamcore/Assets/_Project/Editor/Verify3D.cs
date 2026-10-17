@@ -548,10 +548,15 @@ namespace Dreamcore.EditorTools
 
         /// <summary>
         /// 装配段（batchmode -executeMethod Dreamcore.EditorTools.Verify3D.VerifyAssembly）。
-        /// 验 Main3D.unity 里灰盒异常目录真的接进了 Loop3D，且初始态是"正常"。
+        /// Task 7 起验的是 Main3D.unity 的**真实 FBX 装配**：异常目录接进 Loop3D 且初始态为"正常"，
+        /// 加上 M2 出口的五条真门（① Corridor(Clone) 实例根 + 25 个 MeshRenderer ② 6 盏点光收在
+        /// Light_ 锚点上且带 LightFlicker ③ base 网格每个都有 Collider + sharedMaterial、show_ 网格不带碰撞体
+        /// ④ active base 聚合包围盒的世界量 ⑤ extraFigure 挂 ShadeFigure）。
+        /// 这五条各抓一个"能编译、验收全绿、但游戏不能玩"的坑：没收养灯=全黑走廊、
+        /// 没补碰撞体=穿墙走、没涂材质=刺眼导入白。
         /// 形态沿用本文件真实惯例：入口自持局部 failures + 复用既有 Assert(failures,ok,what) 三参断言 +
         /// 逐行 [VERIFY] FAIL: + 汇总行 + 单行 [VERIFY] PASS（本文件没有共享 fails/Report()，不新增）。
-        /// Dreamcore.D3 的类型（Loop3D/ShadeFigure/TriggerGate/FirstPersonController）一律全限定，
+        /// Dreamcore.D3 的类型（Loop3D/ShadeFigure/TriggerGate/FirstPersonController/LightFlicker）一律全限定，
         /// 本文件 using 区只有 System*/UnityEditor/UnityEngine，无 Dreamcore/Dreamcore.D3；
         /// AnomalyTitles/AnomalyEntry/AnomalyResolver 在 Dreamcore 下，由 Dreamcore.EditorTools 外层命名空间直接可见。
         /// 坏样本开关沿用既有 static readonly bool BadSample（读 VERIFY_BAD），不重开环境变量。
@@ -559,6 +564,13 @@ namespace Dreamcore.EditorTools
         public static void VerifyAssembly()
         {
             var failures = new List<string>();
+            // 坏样本注入的期望一律在 FAIL 行里自标"坏样本"，否则红跑日志读起来像门本身坏了
+            const string BadTag = "（坏样本注入的假期望）";
+            if (BadSample)
+                Debug.Log("[VERIFY] ---- 坏样本注入（仅 VERIFY_BAD=1）---- 装配段 7 条彼此独立的坏期望："
+                          + "MeshRenderer 25→99 / Light 组件 6→99 / base 缺碰撞体 0→1 / base 材质为 null 0→1 / "
+                          + "聚合 min.z 容差 [-0.3,0.3]→[23,24] / extraFigure 的 ShadeFigure 期望翻成'不存在' / "
+                          + "异常表条数 10→999；默认路径绝不用这些假期望");
             UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
                 "Assets/_Project/Scenes/Main3D.unity",
                 UnityEditor.SceneManagement.OpenSceneMode.Single);
@@ -613,12 +625,99 @@ namespace Dreamcore.EditorTools
             Assert(failures, fpc != null && fpc.GetComponent<CharacterController>() != null, "玩家带 CharacterController");
             Assert(failures, Camera.main != null, "Main Camera 在位");
 
+            // ---------- M2 装配真门（Task 7：灰盒换 FBX 后，灯/碰撞体/材质三件事没人做也会全绿）----------
+            // 期望值全部取 logs/verify-fbx.log 的实测世界量；只有世界量是米（spec §9.2），
+            // 所以尺寸门一律走 Renderer.bounds，不读 Transform/Mesh.bounds/BoxCollider.size。
+            // 坏样本（VERIFY_BAD=1）注入 6 条彼此独立的坏期望：①MeshRenderer 25→99 ②灯数 6→99
+            // ③base 缺碰撞体 0→1 ④base 材质为 null 0→1 ⑤聚合 min.z 容差 [-0.3,0.3]→[23,24]
+            // ⑥extraFigure 的 ShadeFigure 期望翻成"不存在"。默认路径一条都不放宽。
+            var inst = GameObject.Find("Corridor(Clone)");
+            Assert(failures, inst != null, "场景里存在 FBX 实例根 Corridor(Clone)");
+            var allRenderers = inst != null
+                ? inst.GetComponentsInChildren<MeshRenderer>(true) : new MeshRenderer[0];
+            Assert(failures, allRenderers.Length == (BadSample ? 99 : 25),
+                   "Corridor(Clone) 下 MeshRenderer 应为 25（16 base 网格 + 9 show），实际 "
+                   + allRenderers.Length + (BadSample ? BadTag : ""));
+
+            int baseCount = 0, anomCount = 0, missingCollider = 0, nullMaterial = 0, showWithCollider = 0;
+            var agg = new Bounds(Vector3.zero, Vector3.zero);
+            bool aggFirst = true;
+            foreach (var mr in allRenderers)
+            {
+                if (AnomalyResolver.IsAnomalyWireName(mr.name))
+                {
+                    anomCount++;
+                    if (mr.GetComponent<Collider>() != null) showWithCollider++;
+                    continue; // 异常件不该变成隐形墙：不要求碰撞体
+                }
+                baseCount++;
+                if (mr.GetComponent<Collider>() == null) missingCollider++;
+                if (mr.sharedMaterial == null) nullMaterial++;
+                if (!mr.gameObject.activeInHierarchy) continue; // 聚合只数 active 的 base 网格
+                if (aggFirst) { agg = mr.bounds; aggFirst = false; }
+                else agg.Encapsulate(mr.bounds);
+            }
+            Debug.Log("[VERIFY] base 网格=" + baseCount + " anom 网格=" + anomCount
+                      + "；active base 聚合包围盒 size=" + agg.size + " min=" + agg.min + " max=" + agg.max);
+
+            // ③ base 每个都要有碰撞体与材质（FBX 两者都不带，靠 Bootstrap3D.PaintShell 补）
+            Assert(failures, missingCollider == (BadSample ? 1 : 0),
+                   "base 网格缺碰撞体的个数应为 0（否则穿墙走），实际 " + missingCollider
+                   + (BadSample ? BadTag : ""));
+            Assert(failures, nullMaterial == (BadSample ? 1 : 0),
+                   "base 网格 sharedMaterial 为 null 的个数应为 0（否则刺眼导入白），实际 " + nullMaterial
+                   + (BadSample ? BadTag : ""));
+            Assert(failures, showWithCollider == 0,
+                   "anom 的 show_ 网格不应带 Collider（异常件不是隐形墙），实际 " + showWithCollider);
+
+            // ② 灯：组件真相在 Unity、位置真相在 Blender，六盏点光必须收在 Light_ 锚点上
+            var sceneLights = UnityEngine.Object.FindObjectsByType<Light>(
+                FindObjectsInactive.Include, FindObjectsSortMode.None);
+            Assert(failures, sceneLights.Length == (BadSample ? 99 : 6),
+                   "场景内 Light 组件应为 6 盏，实际 " + sceneLights.Length + (BadSample ? BadTag : ""));
+            var wantLightNames = new HashSet<string> { "Light_2", "Light_6", "Light_10", "Light_14", "Light_18", "Light_22" };
+            foreach (var lt in sceneLights)
+            {
+                string host = lt.gameObject.name;
+                Assert(failures, wantLightNames.Contains(host), "灯的宿主名必须是 Light_ 灯位锚点：" + host);
+                Assert(failures, lt.type == LightType.Point, "灯应为点光，宿主 " + host + " 实际 " + lt.type);
+                Assert(failures, Mathf.Approximately(lt.range, 7f), "灯 range 应为 7f，宿主 " + host + " 实际 " + lt.range);
+                Assert(failures, lt.gameObject.GetComponent<Dreamcore.D3.LightFlicker>() != null,
+                       "灯宿主必须挂 LightFlicker（不会闪的灯等于没有灯闪）：" + host);
+                Debug.Log("[VERIFY] 灯 " + host + " world=" + lt.transform.position
+                          + " lossyScale=" + lt.transform.lossyScale);
+            }
+
+            // ④ 世界量门：走廊必须沿 +Z 铺开，尺寸是"人住的楼"而不是 100 倍通道
+            Assert(failures, agg.size.x >= 2.6f && agg.size.x <= 3.3f,
+                   "聚合宽应落在 [2.6,3.3]m（实测 2.91），实际 " + agg.size.x);
+            Assert(failures, agg.size.y >= 2.8f && agg.size.y <= 3.4f,
+                   "聚合高应落在 [2.8,3.4]m（实测 3.10），实际 " + agg.size.y);
+            Assert(failures, agg.size.z >= 23.5f && agg.size.z <= 24.6f,
+                   "聚合长应落在 [23.5,24.6]m（实测 24.05），实际 " + agg.size.z);
+            float minZLo = BadSample ? 23.0f : -0.3f;
+            float minZHi = BadSample ? 24.0f : 0.3f;
+            Assert(failures, agg.min.z >= minZLo && agg.min.z <= minZHi,
+                   "走廊起点 min.z 应落在 [" + minZLo + "," + minZHi + "]（走廊必须往 +Z 延伸，实测 0.00）"
+                   + (BadSample ? BadTag : "") + "，实际 " + agg.min.z);
+
+            // ⑤ 人影 billboard 组件（FBX 给不了，只能 Unity 挂）。
+            // show_ 节点在正常态是 inactive，GameObject.Find 只认 active 物件、会假报"节点缺失"，
+            // 所以走本文件的 FindByName（递归含 inactive 子节点）。
+            var figT = inst != null ? FindByName(inst.transform, "anom02_show_extraFigure") : null;
+            var figShade = figT != null ? figT.GetComponent<Dreamcore.D3.ShadeFigure>() : null;
+            Assert(failures, (figShade != null) != BadSample,
+                   "anom02_show_extraFigure 上应挂 ShadeFigure（billboard），实际 "
+                   + (figShade != null ? "已挂" : "缺失")
+                   + (BadSample ? BadTag : "") + "，宿主 " + (figT == null ? "节点缺失" : figT.name));
+
             // 坏样本：VERIFY_BAD=1 时把 10 条翻成 999，独立成一行 FAIL（默认路径绝不执行）。
             if (BadSample)
                 Assert(failures, loop.anomalies.Count == 999, "坏样本：这条断言必须失败");
 
             if (failures.Count == 0)
-                Debug.Log("[VERIFY] PASS: 装配断言全过（10 条目录 + show 关/hide 开 + 无常驻黑影 + 两端门 + 玩家 + 相机）");
+                Debug.Log("[VERIFY] PASS: 装配断言全过（10 条目录 + show 关/hide 开 + 无常驻黑影 + 两端门 + 玩家 + 相机"
+                          + " + Corridor(Clone) 25 网格 + 6 盏点光带 LightFlicker + base 碰撞体与材质齐 + 聚合世界量 + extraFigure billboard）");
             else
             {
                 foreach (var f in failures)
@@ -694,8 +793,9 @@ namespace Dreamcore.EditorTools
                 int nonWire = 0, wire = 0;
                 foreach (var n in names)
                     if (AnomalyResolver.IsAnomalyWireName(n)) wire++; else nonWire++;
-                Assert(failures, nonWire >= 1,
-                       "至少有一个不匹配 wire 语法的对象名（base 桶存在），实际 non-wire=" + nonWire);
+                // 恒真写法（>=1，根节点保证它永不失败）已在 Task 7 换掉：22 个 base 裸名 + 根 = 23。
+                Assert(failures, nonWire == 23,
+                       "不匹配 wire 语法的对象名（base 桶 + 根）应为 23 个，实际 non-wire=" + nonWire);
                 Assert(failures, wire == 22,
                        "wire 语法名应为 22 个（9 show + 13 hide 代理），实际 " + wire);
 
