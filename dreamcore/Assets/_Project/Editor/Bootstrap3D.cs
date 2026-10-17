@@ -147,8 +147,6 @@ namespace Dreamcore.EditorTools
             // 玩法循环
             var loopGo = new GameObject("GameLoop");
             var loop = loopGo.AddComponent<Loop3D>();
-            loop.sceneLights = lights.ToArray();
-            loop.shadeFigures = shades.ToArray();
 
             // HUD（Overlay：文字清晰，场景由 URP 滤镜盖住）
             CreateHud();
