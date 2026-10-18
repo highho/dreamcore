@@ -2,7 +2,7 @@
 
 本目录是 **base 走廊几何 + 10 组异常变体的唯一真相**（headless Blender 5.2.2）。
 产物 `dreamcore/Assets/Content/3D/Corridor.fbx` 由脚本生成，**不要手改**：改模型 = 改脚本重跑。
-本文只写"下个会话必须知道才不会踩坑"的四件事，不复述 spec。
+本文只写"下个会话必须知道才不会踩坑"的五件事，不复述 spec。
 
 ## 1. 命名契约：前缀式 wire 名，集合不导出
 
@@ -29,37 +29,31 @@
   解析器不认 `_open`，随艺师怎么叫都行，但**不许与 base 里的名字同名**。
 - base 与 anom 的二分**只能调 `AnomalyResolver.IsAnomalyWireName(name)`**（Task 7 的装配、Task 8 的
   验收都用它），**不许再复制那份正则**。
+- **杂物（`gen_props.py`）走的是同一套 base 命名**：实例名 `Prop_<slug>`（单件）或 `Prop_<slug>__<n>`
+  （同件多摆，`n` 从 1 起）。slug 里**不许出现下划线**，Unity 侧 `Bootstrap3D.SurfFor` 靠
+  `IndexOf("__")` 切实例后缀、`Substring(5)` 取 slug 去查材质表；slug 带下划线会被切错、
+  查不到材质 → 落进"未登记 base 名"那条门判红。`Prop_` 不匹配 wire 正则，所以它天然归 base 侧。
 
-## 2. 当前名字清单（照 `logs/blender-build.log` 的 `[BUILD]` 原样粘）
+## 2. 当前名字清单
 
-`objects=44`：base 22 + anom 22（`wire_check=ok show=9 hide=13 hide_targets_ok=13 malformed=0`）。
+**别把数量抄进文档当判据**（本项目已经因为"25 个网格""objects=44"这类写死的数被坑过两轮）：
+真实清单以 `logs/blender-build.log` 的 `[BUILD]` 行为准，验收侧的名单以
+`dreamcore/Assets/_Project/Editor/Verify3D.cs` 里的 `CorridorBaseNames` / `PropBaseNames` /
+`BaseEmptyNames` / `AnomShowNames` / `AnomHideNames` 为唯一真相，所有计数断言都从这些数组 `.Length` 派生。
 
-**base**（`Floor WallLeft WallRight Ceiling EndWall WainscotL WainscotR` 七面 + 9 个可指认本体 + 6 盏灯位 EMPTY）：
-
+```sh
+grep -E '^\[BUILD\] (objects|wire_check|anom_ids|props|base_total)' logs/blender-build.log
 ```
-Floor, WallLeft, WallRight, Ceiling, EndWall, WainscotL, WainscotR,
-Door_3, Door_9, Poster_6, Poster_10, Poster_18,
-MailboxBody, MailboxDoor, BikeUp, WindowBuildings,
-Light_2, Light_6, Light_10, Light_14, Light_18, Light_22
-```
 
-`Door_9` / `MailboxBody` 是纯装饰（无人指认、也不匹配 wire 语法），所以 Task 5 灰盒里没有它们，
-不影响 Task 7 整只替换。`Light_*` 六个是 **EMPTY 灯位锚点**（Task 7 在此挂点光）。
+三族名字的形状：
 
-**anom**（10 组，与 `AnomalyTitles` 的 10 个 id 一一对应；22 个引用 = 9 show + 13 hide，与灰盒逐字同集）：
-
-| 组 | show（网格） | hide 代理（EMPTY，剥 `_off` 即 base 目标） |
+| 族 | 例 | 谁生成 |
 |---|---|---|
-| anom01 声控灯全灭 | `anom01_show_emergencyLight` | `anom01_hide_Light_2_off` `_6_` `_10_` `_14_` `_18_` `_22_`（6 个） |
-| anom02 尽头多一个人影 | `anom02_show_extraFigure` | — |
-| anom03 防盗门半开 | `anom03_show_Door_3_open` | `anom03_hide_Door_3_off` |
-| anom04 小广告整排消失 | —（纯 hide 组） | `anom04_hide_Poster_6_off` `_Poster_10_off` `_Poster_18_off` |
-| anom05 一双旧布鞋 | `anom05_show_Shoes` | — |
-| anom06 自行车倒了 | `anom06_show_BikeUp_open` | `anom06_hide_BikeUp_off` |
-| anom07 信报箱门敞开 | `anom07_show_MailboxDoor_open` | `anom07_hide_MailboxDoor_off` |
-| anom08 门缝渗水 | `anom08_show_WaterPuddle` | — |
-| anom09 天花板垂红电线 | `anom09_show_RedWire` | — |
-| anom10 窗外全黑 | `anom10_show_WindowBuildings_open` | `anom10_hide_WindowBuildings_off` |
+| 走廊壳体与构件 | `Floor` `WallLeft` `WainscotR` `Door_3` `DoorPlate_9` `Lamp_6` `Poster_18` `MailboxBody` `WindowBuildings` | `gen_corridor.py` |
+| 灯位锚点（EMPTY） | `Light_2` `Light_6` … `Light_22` | `gen_corridor.py` |
+| 杂物 | `Prop_chair__1` `Prop_bench` `Prop_extinguisher` `Prop_clock` | `gen_props.py` |
+| 异常 show / hide 代理 | `anom02_show_extraFigure` / `anom01_hide_Light_2_off` | `gen_anomalies.py` |
+
 
 ## 3. 轴映射实测（Task 6 Step 6，别按猜测改）
 
@@ -73,6 +67,10 @@ FbxYaw= 90 → 聚合 size=(2.91, 3.10, 24.05) min=(-1.66, 0.00, 0.00)  max=(1.2
 ```
 
 （`logs/verify-fbx-yaw.log` = -90 的探针跑，`logs/verify-fbx.log` = 90 的绿跑；聚合只用 `Renderer.bounds`。）
+
+> 口径勘误（M3）：上面两次读数里的**宽 2.91** 是当时窗外楼板的包围盒露在墙外约 0.5m 撑出来的假宽度；
+> 窗板收进墙体后真实净宽 2.50m（`logs/verify-asm.log` 实测 2.500003）。读数按当时的 FBX 原样保留不改，
+> 轴映射与 `FbxYaw=90f` 的结论不受影响（那两条门查的是 `size.z` 与 `min.z/max.z`）。
 
 由此定下的事实：**导入器本身做了 `Blender (X,Y,Z) → Unity (-X, Z, -Y)`**（长度与横向各翻一次号，高度对），
 再叠加根上的 `FbxYaw` 绕 Y 旋转。所以单个 Y 旋钮只能满足两个约束之一：
@@ -126,8 +124,38 @@ cd /g/AIgame/jam && VERIFY_BAD=1 ./tools/blender_build.sh  # 同一道门喂坏�
   `[ "$VLOG" -nt "$MARKER" ]` 三件套会拒绝读陈旧日志（**别把它改掉**，那是假绿的来源）。
 - `--python-exit-code 4` 必须放在 `--python` **之左（之前）**：放后面在 Blender 5.2.2 上会被忽略，
   Python 抛异常照样退 0，那道 `||` 门就是装饰。
-- 环境变量覆写：`BLENDER_EXE`（Blender 可执行文件）、`CORRIDOR_BLEND`、`CORRIDOR_FBX_OUT`。
+- 环境变量覆写：`BLENDER_EXE`（Blender 可执行文件）、`CORRIDOR_BLEND`、`CORRIDOR_FBX_OUT`、
+  `PH_PROPS_DIR`（道具几何暂存目录，见 §5）。
 - `Error: Not found: bpy.ops.export_scene.fbx` = 导出插件没启用；`objects` 数量对不上照
   `[BUILD] base_children` 逐项查。
 - 验收口在 `dreamcore/Assets/_Project/Editor/Verify3D.cs::VerifyFbx()`（`-logFile` 读 `[VERIFY]`）。
-  本任务**不动装配**：`Bootstrap3D` 仍用 `GreyboxAnomalies` 灰盒，切 FBX 是 Task 7。
+  装配侧（`Bootstrap3D`）已经整只收养这只 FBX，灰盒 `GreyboxAnomalies` 早已删除。
+
+## 5. 杂物段（`gen_props.py`）：第三方 CC0 道具并入 base
+
+它不是"再建一个集合"，而是**把外部网格并进 `base` 后一起导出**，所以 §1 的命名契约、§3 的轴映射
+与尺度口径对它全部适用。跑之前先 `./tools/fetch_props.sh`（它把几何暂存、贴图落 `Assets/Content/Textures/Prop_<slug>/`）。
+
+- **暂存目录必须用 Windows 口径**：Git Bash 的 `$TMPDIR` 是 MSYS 的 `/tmp`（真身 `%LOCALAPPDATA%\Temp`），
+  而 `blender.exe` 是 Windows 原生程序，把 `/tmp` 认成 `C:\tmp` → `RuntimeError: 缺道具几何 /tmp\ph-props\chair.fbx`。
+  `_stage_dir()` 因此按候选链找（`PH_PROPS_DIR` → `%LOCALAPPDATA%\Temp\ph-props` → `$TMPDIR/ph-props` → `/tmp/ph-props`），
+  第一个"存在且含 .fbx"的才算，全落空才报错。
+- **绝不"先清场"再导入**：本脚本在 `gen_corridor.build()` 之后运行，`select_all + delete` 会把整条走廊删干净
+  （实测过一次，FBX 只剩道具）。改成取导入前后的对象**差集**，只留 MESH、非 MESH 的临时空物体就地删除。
+- **`Object.copy()` 在 Blender 5.2 不接受任何参数**：`proto.copy(data=...)` 直接 `TypeError`。
+  写 `ob = proto.copy(); ob.data = proto.data.copy()`（网格也要拷，否则多实例共享同一份、改不动）。
+- **原型件 `_Proto_<slug>` 用完必须删**，`build_scene.py` 里还有一道"泄漏门"兜底：它若留在场景里会跟着导进
+  Corridor.fbx，被 Unity 侧"未登记 base 名"判红。
+- **落位判据读 `matrix_world`，而它只在依赖图更新后才反映刚设的 `location`**：设完位置必须
+  `bpy.context.view_layer.update()` 再取包围盒。漏这一句时 15 件全部误报"横跨中线（y -0.34..0.34）"
+  ——那是**量具坏了不是摆放坏了**，别去放宽判据（本项目真差点这么干）。
+- **尺寸与面数用两个独立 oracle 自证**：官方 `polycount` 是三角面精确数（`_check_tris` 逐件等值断言），
+  索引里的 `dimensions` 是**毫米数组**且**轴序不保证一致**（`medical_box` 的高度落在第 3 槽），
+  所以 `_check_size` 比的是**排序后的三元组**、容差 ±12%。口径来源 `tools/ph_prop_dims.mjs` → `logs/props-dims.txt`。
+- **摆放的三条硬约束**（Unity 侧 `Verify3D.CheckProps` 用世界量再验一遍，两侧口径独立）：
+  不跨中线、每件留 ≥1.05m 通行带、贴墙件不许糊在门洞/窗洞上。地面件 `z=FLOOR_TOP`（`gen_corridor.py:23`，=0.10）
+  **是贴地不是悬空**——别按"地板在 0"去"修"它。墙上件（`Prop_clock`/`Prop_alarm`）的 `y=±1.10` 同理是
+  贴着内表面 `1.15` 摆的。
+- **道具用自己的 UV，不参与 world-scale tiling**：`Bootstrap3D.AddProp` 一律传 `tileMeters = 0f`，
+  按米裁会把说明标签/表盘撕成两半。门在 `Verify3D` 装配段："15 件杂物的 `_BaseMap` tiling 应保持 (1,1)"。
+
