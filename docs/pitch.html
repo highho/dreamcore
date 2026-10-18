@@ -58,7 +58,7 @@
   #bar{position:fixed;left:0;bottom:0;height:2px;background:var(--lamp);width:0;z-index:99;transition:width .25s}
   #num{position:fixed;right:16px;bottom:12px;font-size:12px;color:#3c4148;z-index:99;letter-spacing:.1em}
   .big{font-size:100px;font-weight:800;letter-spacing:.1em;line-height:1.1}
-  .cover{position:absolute;inset:0;background:url(images/cover.png) center/cover no-repeat;opacity:.55}
+  .cover{position:absolute;inset:0;background:url(images/bg-corridor.png) center/cover no-repeat;opacity:.5}
   .veil{position:absolute;inset:0;background:linear-gradient(180deg,#0a0b0dcc 0%,#0a0b0d66 45%,#0a0b0df2 100%)}
   .rel{position:relative;z-index:2;height:100%;display:flex;flex-direction:column}
   @media print{
@@ -167,7 +167,7 @@
     <div class="step"><b>④ 运行时</b><span>9 个脚本<br>Loop3D · Resolver · FPC<br>Hud · Gate · Flicker …<br><i class="faint">660 行，全部游戏逻辑</i></span></div>
     <div class="step"><b>⑤ 验收出货</b><span>Verify3D 三段门禁<br>4 支实机取证工装<br>→ 62.6MB / 169 条目<br><i class="faint">1,801 + 1,176 行</i></span></div>
   </div>
-  <h3>六条塑形约束</h3>
+  <h3>六条约束里最要紧的三条</h3>
   <div class="grid g3">
     <div class="card"><b>不新增任何 Unity 包</b><span>没有 Input System、没有 test-framework。输入走 legacy；验收只能自建 batchmode 门禁。</span></div>
     <div class="card"><b>场景是产物，不是源文件</b><span>任何"在编辑器里手改一下"都会在下次 build 被抹掉。这条纪律逼出了全部"配置写进代码"的风格。</span></div>
