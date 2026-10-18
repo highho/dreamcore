@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>《昨日的明天》· 路演</title>
+<style>
+  :root{
+    --ink:#e8e2dc; --dim:#9a918a; --faint:#6b645e;
+    --bg:#0a0b0d; --panel:#12151a; --line:#252b33;
+    --lamp:#ffc46b; --win:#8fb4c9; --green:#3f6b5a; --warn:#c96b6b;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:#000;overflow:hidden;
+    font-family:"Microsoft YaHei UI","PingFang SC","Hiragino Sans GB",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  #stage{position:absolute;top:50%;left:50%;width:1280px;height:720px;
+    transform-origin:center center}
+  .s{position:absolute;inset:0;width:1280px;height:720px;background:var(--bg);
+    color:var(--ink);padding:60px 76px;display:none;flex-direction:column;
+    border:1px solid #1a1d22}
+  .s.on{display:flex}
+  .kicker{font-size:15px;letter-spacing:.32em;color:var(--faint);text-transform:uppercase;margin-bottom:14px}
+  h1{font-size:78px;font-weight:800;letter-spacing:.06em;line-height:1.15}
+  h2{font-size:42px;font-weight:700;letter-spacing:.03em;margin-bottom:8px}
+  h3{font-size:21px;font-weight:700;color:var(--lamp);margin:22px 0 10px;letter-spacing:.04em}
+  p{font-size:20px;line-height:1.75;color:var(--ink)}
+  .lead{font-size:26px;line-height:1.8;color:var(--ink)}
+  .dim{color:var(--dim)} .faint{color:var(--faint)} .win{color:var(--win)} .lamp{color:var(--lamp)}
+  .mono{font-family:Consolas,"Cascadia Mono",monospace}
+  ul{list-style:none} li{font-size:19px;line-height:1.85;padding-left:24px;position:relative}
+  li:before{content:"";position:absolute;left:2px;top:.78em;width:8px;height:1px;background:var(--faint)}
+  .grid{display:grid;gap:18px} .g2{grid-template-columns:1fr 1fr} .g3{grid-template-columns:1fr 1fr 1fr}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:20px 22px}
+  .card b{display:block;font-size:17px;color:var(--lamp);margin-bottom:6px;letter-spacing:.04em}
+  .card span{font-size:16px;line-height:1.65;color:var(--dim)}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:22px;text-align:center}
+  .stat i{display:block;font-style:normal;font-size:44px;font-weight:800;color:var(--lamp);line-height:1.1}
+  .stat em{display:block;font-style:normal;font-size:15px;color:var(--dim);margin-top:8px;letter-spacing:.06em}
+  figure{border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#000}
+  figure img{display:block;width:100%;height:100%;object-fit:cover}
+  figcaption{font-size:14px;color:var(--faint);padding:7px 11px;border-top:1px solid var(--line);letter-spacing:.04em}
+  table{width:100%;border-collapse:collapse;font-size:17px}
+  th{text-align:left;color:var(--faint);font-weight:600;font-size:14px;letter-spacing:.14em;
+     padding:0 12px 9px;border-bottom:1px solid var(--line)}
+  td{padding:9px 12px;border-bottom:1px solid #1a1e24;color:var(--dim);line-height:1.5}
+  td:first-child{color:var(--ink)}
+  .flow{display:flex;align-items:stretch;gap:0;margin:8px 0}
+  .step{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px 12px;position:relative}
+  .step + .step{margin-left:26px}
+  .step + .step:before{content:"→";position:absolute;left:-21px;top:50%;transform:translateY(-50%);
+     color:var(--faint);font-size:17px}
+  .step b{display:block;font-size:15px;color:var(--lamp);margin-bottom:5px;letter-spacing:.03em}
+  .step span{display:block;font-size:13.5px;line-height:1.55;color:var(--dim)}
+  .tag{display:inline-block;font-size:13px;padding:3px 10px;border:1px solid var(--line);
+       border-radius:99px;color:var(--dim);margin:0 6px 6px 0;letter-spacing:.06em}
+  .foot{margin-top:auto;padding-top:20px;font-size:14px;color:var(--faint);letter-spacing:.06em;
+        display:flex;justify-content:space-between;border-top:1px solid #171a1f}
+  #bar{position:fixed;left:0;bottom:0;height:2px;background:var(--lamp);width:0;z-index:99;transition:width .25s}
+  #num{position:fixed;right:16px;bottom:12px;font-size:12px;color:#3c4148;z-index:99;letter-spacing:.1em}
+  .big{font-size:100px;font-weight:800;letter-spacing:.1em;line-height:1.1}
+  .cover{position:absolute;inset:0;background:url(images/cover.png) center/cover no-repeat;opacity:.55}
+  .veil{position:absolute;inset:0;background:linear-gradient(180deg,#0a0b0dcc 0%,#0a0b0d66 45%,#0a0b0df2 100%)}
+  .rel{position:relative;z-index:2;height:100%;display:flex;flex-direction:column}
+  @media print{
+    html,body{overflow:visible;background:#000}
+    #stage{position:static;transform:none!important;width:auto;height:auto}
+    .s{display:flex!important;position:relative;inset:auto;width:1280px;height:720px;
+        page-break-after:always;margin:0 auto;border:0}
+    #bar,#num{display:none}
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+
+<!-- 1 -->
+<section class="s on">
+  <div class="cover"></div><div class="veil"></div>
+  <div class="rel" style="justify-content:flex-end;padding-bottom:8px">
+    <div class="kicker">8 小时 · 单人 · GameJam</div>
+    <div class="big">昨日的明天</div>
+    <p class="lead" style="margin-top:18px;max-width:880px">
+      中式梦核找异常。你在深夜的老居民楼里一层层往下走，<br>
+      <span class="lamp">觉得哪里不对劲，就回头。</span>
+    </p>
+    <div style="margin-top:26px">
+      <span class="tag">Unity 6.3 LTS</span><span class="tag">URP 17.0.1</span>
+      <span class="tag">Blender 5.2 + Python</span><span class="tag">零新增包</span>
+      <span class="tag">Windows x64</span><span class="tag">一局 3–5 分钟</span>
+    </div>
+  </div>
+</section>
+
+<!-- 2 -->
+<section class="s">
+  <div class="kicker">内核</div>
+  <h2>昨日想象中的明天，已经过期</h2>
+  <div class="grid g2" style="margin-top:26px;flex:1">
+    <div>
+      <p class="lead">场景取千禧年前后中国城镇的<b class="win" style="font-weight:700">居民楼公共走廊</b>——
+      水磨石地面、绿漆墙裙、声控灯、信报箱、防盗门、开锁疏通的小广告。</p>
+      <p style="margin-top:20px" class="dim">这些空间在 2000 年前后是"明天"。今天回头看，
+      那个明天从来没有来过。挂历上圈着的那天，是 2 月 30 日。</p>
+    </div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;align-content:start">
+      <div class="stat"><i>1</i><em>条走廊，反复走</em></div>
+      <div class="stat"><i>10</i><em>组异常变体</em></div>
+      <div class="stat"><i>8</i><em>层，走到底就出来</em></div>
+      <div class="stat"><i>3</i><em>次容错</em></div>
+    </div>
+  </div>
+  <div class="foot"><span>昨日的明天 · Dreamcore</span><span>内核</span></div>
+</section>
+
+<!-- 3 -->
+<section class="s">
+  <div class="kicker">玩法</div>
+  <h2>同一条走廊，只有"不对劲"在变</h2>
+  <div class="flow" style="margin-top:26px">
+    <div class="step"><b>第 1 层 · 强制干净</b><span>先让你记住"正常长什么样"。没有这个锚，找异常不成立。</span></div>
+    <div class="step"><b>走进去</b><span>24 米直线走廊，慢走节奏。灯在闪，窗外是该有的楼。</span></div>
+    <div class="step"><b>抽一层</b><span>35% 是干净层；否则从没用过的 10 组里等概率抽一个，本局不重复。</span></div>
+    <div class="step"><b>在两端做判定</b><span>走到尽头 = 前进；走回起点 = 回头。<b class="lamp">有异常时回头才对。</b></span></div>
+    <div class="step"><b>到底 / 错三次</b><span>两种结局，文案打在屏幕中央，不弹菜单。</span></div>
+  </div>
+  <h3>这条规则是从一个结构缺陷里长出来的</h3>
+  <p class="dim">最早的实现是运行时 <span class="mono">Random.value &lt; 0.55</span> 掷骰子 + 随机亮黑影。
+  跑起来才发现：<span class="lamp">玩家从没见过"正常"，所以"找异常"这个玩法根本不成立。</span>
+  那是结构缺陷，不是美术缺口——于是把抽取顺序写死：干净判定先于抽样，第 1 层强制干净。</p>
+  <div class="foot"><span>昨日的明天 · Dreamcore</span><span>玩法</span></div>
+</section>
+
+<!-- 4 -->
+<section class="s">
+  <div class="kicker">内容</div>
+  <h2>10 组异常，逐组可辨识</h2>
+  <div class="grid g3" style="margin-top:20px">
+    <figure><img src="images/anom01_before.png" alt=""><figcaption>anom01 正常 · 声控灯亮</figcaption></figure>
+    <figure><img src="images/anom01_after.png" alt=""><figcaption>anom01 异常 · 只剩绿色应急光</figcaption></figure>
+    <figure><img src="images/anom02_after.png" alt=""><figcaption>anom02 · 尽头多出背对镜头的人影</figcaption></figure>
+  </div>
+  <div class="grid g2" style="margin-top:20px;flex:1">
+    <table>
+      <tr><th>编号</th><th>异常</th></tr>
+      <tr><td>anom03 / 04</td><td>一户防盗门半开 · 开锁疏通小广告整排消失</td></tr>
+      <tr><td>anom05 / 06</td><td>地上多出一双小孩旧布鞋 · 靠墙的旧自行车倒了</td></tr>
+      <tr><td>anom07 / 08</td><td>信报箱小门全部敞开 · 门缝下渗出一滩水</td></tr>
+      <tr><td>anom09 / 10</td><td>天花板垂下一段红电线 · 窗外该有楼的地方全黑</td></tr>
+    </table>
+    <div class="card"><b>可辨识性 10/10 是量出来的</b>
+      <span>每组异常渲染一对 before/after 帧，逐组比对哈希：10 组全部有差分。
+      修掉两处只在实机暴露的摆放缺陷——海报与信报箱门"悬空/被埋"。
+      根因是 Blender <span class="mono">box()</span> 的 size 第二量是横向厚度，贴墙件中心必须落在墙<b>内表面</b>。</span></div>
+  </div>
+  <div class="foot"><span>昨日的明天 · Dreamcore</span><span>内容</span></div>
+</section>
+
+<!-- 5 -->
+<section class="s">
+  <div class="kicker">架构</div>
+  <h2>除了两只 FBX 和贴图，场景与材质全是代码</h2>
+  <p class="dim" style="margin:6px 0 22px">所以它可以被删掉重建——也因此能被机器判定建对没有。8 小时预算下，<b class="lamp" style="font-weight:700">能重建的东西才敢改。</b></p>
+  <div class="flow">
+    <div class="step"><b>① 作者态</b><span>build_scene.py 唯一入口<br>gen_corridor / anomalies<br>/ props / body<br><i class="faint">1,008 行 Python</i></span></div>
+    <div class="step"><b>② 中间载荷</b><span>headless 导出<br>Corridor.fbx · Body.fbx<br>+ 20 套 CC0 贴图 + 4 条音频<br><i class="faint">唯一进库的二进制</i></span></div>
+    <div class="step"><b>③ 编辑态装配</b><span>Bootstrap3D 幂等重建<br>Main3D.unity + Title.unity<br>13 个阶段，顺序即依赖<br><i class="faint">843 行</i></span></div>
+    <div class="step"><b>④ 运行时</b><span>9 个脚本<br>Loop3D · Resolver · FPC<br>Hud · Gate · Flicker …<br><i class="faint">660 行，全部游戏逻辑</i></span></div>
+    <div class="step"><b>⑤ 验收出货</b><span>Verify3D 三段门禁<br>4 支实机取证工装<br>→ 62.6MB / 169 条目<br><i class="faint">1,801 + 1,176 行</i></span></div>
+  </div>
+  <h3>六条塑形约束</h3>
+  <div class="grid g3">
+    <div class="card"><b>不新增任何 Unity 包</b><span>没有 Input System、没有 test-framework。输入走 legacy；验收只能自建 batchmode 门禁。</span></div>
+    <div class="card"><b>场景是产物，不是源文件</b><span>任何"在编辑器里手改一下"都会在下次 build 被抹掉。这条纪律逼出了全部"配置写进代码"的风格。</span></div>
+    <div class="card"><b>走廊是一条 24m 直线</b><span>复用 + 异常变体集。让"找异常"成立，也让美术量恒定。光照不烘焙。</span></div>
+  </div>
+  <div class="foot"><span>昨日的明天 · Dreamcore</span><span>架构 · 详见 docs/ARCHITECTURE.md</span></div>
+</section>
+
+<!-- 6 -->
+<section class="s">
+  <div class="kicker">核心设计</div>
+  <h2>跨进程契约：异常分组只活在<b class="win">物体名字</b>里</h2>
+  <div class="grid g2" style="margin-top:22px;flex:1">
+    <div>
+      <div class="card" style="margin-bottom:16px"><b>wire 语法</b>
+        <span class="mono" style="font-size:17px;color:var(--ink);line-height:2">
+        ^anom(\d{2})_(show|hide)_(.+)$<br>
+        <span class="faint">floor / Door_3 / Light_2</span> &nbsp;→ base 恒定本体，裸名<br>
+        <span class="lamp">anom02_show_shadeFigure</span> &nbsp;→ 出现<br>
+        <span class="warn">anom01_hide_Light_2_off</span> → 消失（空代理指认目标）</span></div>
+      <h3>为什么不是集合</h3>
+      <p class="dim">对导出产物严格 grep 集合名 = <b class="lamp" style="font-weight:700">0 命中</b>。
+      Blender 5.2.2 的 43 个 <span class="mono">export_scene.fbx</span> 参数里没有"集合导出为节点"开关。
+      想跨进程传分组信息，只剩物体名这一条通道。</p>
+      <h3>为什么也不用 Empty 包裹</h3>
+      <p class="dim">层级路径确实保住了，但它连带把子节点 <span class="mono">localPosition</span> 一起除/乘，
+      把 100× 搬到父级上——几何位置就错了。被否。</p>
+    </div>
+    <div>
+      <h3 style="margin-top:0">配套口径：FBX 里只有世界量是米</h3>
+      <p class="dim">同一条通道把节点 baked 成 <span class="mono">lossyScale = 100</span> + 顶点预除 100。
+      所以 <span class="mono">localScale</span>、<span class="mono">Mesh.bounds</span>、
+      <span class="mono">BoxCollider.size</span> <b class="warn" style="font-weight:700">都不是米</b>，
+      只有 <span class="mono">Renderer.bounds</span> / <span class="mono">Collider.bounds</span> 是。</p>
+      <p class="dim" style="margin-top:12px">Blender +Z 落到 Unity +Y，装配统一套
+      <span class="mono">FbxYaw = 90°</span>。立方体的 AABB 对旋转不变，会<b>掩盖</b>这条事实——
+      非对称网格必须用 bounds 复核。</p>
+      <h3>唯一真相</h3>
+      <p class="dim">命名约定只有 <span class="mono">AnomalyResolver.cs</span> 一个文件知道。
+      发送侧（4 个 Python 脚本 + 导出前自检）与消费侧（Bootstrap / Verify / Capture）
+      一律调 <span class="mono">IsAnomalyWireName()</span>，不各自复制正则。
+      改契约是一次改动，不是六处。</p>
+      <p class="dim" style="margin-top:12px">走廊实测口径：<b class="ink" style="font-weight:700;color:var(--ink)">宽 2.50m × 高 3.10m × 长 24.05m</b>。
+      旧读数 2.91 作废——那是露在墙外的窗板撑出来的假宽度。</p>
+    </div>
+  </div>
+  <div class="foot"><span>昨日的明天 · Dreamcore</span><span>核心设计</span></div>
+</section>
+
+<!-- 7 -->
+<section class="s">
+  <div class="kicker">质量</div>
+  <h2>门禁代码是游戏代码的 <span class="lamp">4.2 倍</span></h2>
+  <div class="grid g3" style="margin-top:20px">
+    <div class="stat"><i>660</i><em>行 · 游戏运行时（9 个脚本）</em></div>
+    <div class="stat"><i>2,767</i><em>行 · 编辑态装配与门禁</em></div>
+    <div class="stat"><i>1,176</i><em>行 · 产线与取证脚本</em></div>
+  </div>
+  <div class="grid g2" style="margin-top:22px;flex:1">
+    <div>
+      <h3 style="margin-top:0">三段 batchmode 门禁</h3>
+      <table>
+        <tr><th>段</th><th>验什么</th></tr>
+        <tr><td>建模段 VerifyFbx</td><td>只验 Corridor.fbx：几何、真开洞、杂物通行带、命名逐字保真</td></tr>
+        <tr><td>装配段 VerifyAssembly</td><td>读 Main3D.unity：装配完整性，含标题页与引导条五道门</td></tr>
+        <tr><td>玩法段 VerifyGameplay</td><td>不引用任何资产，M1 灰盒期即成立</td></tr>
+      </table>
+      <p class="dim" style="margin-top:14px;font-size:17px">判据计数<b class="lamp" style="font-weight:700">一律从名单 <span class="mono">.Length</span> 派生，禁魔数</b>——
+      加一个物件只需改名单，门自动跟上。</p>
+    </div>
+    <div>
+      <h3 style="margin-top:0">坏期望注入：证明门真的会红</h3>
+      <p class="dim"><span class="mono">VERIFY_BAD=1</span> 把<b>期望值</b>翻成物理不可能的数
+      （尺寸容差 0.9–1.1 → 90–110、哨兵计数 99、HUD 期望翻成 Overlay），
+      一次跑让每条分支各成一红、互不短路。</p>
+      <div class="card" style="margin-top:14px"><b>一个真实教训</b>
+        <span>通行带门原本写成"名单长度 vs 通过件数"——那是个<b class="warn" style="font-weight:700">恒等式，永远绿</b>。
+        改成 99 哨兵后，绿跑 narrow=0、坏跑 narrow=15，门才有牙。<br><br>
+        "我写了个检查"和"检查会失败"是两件事。</span></div>
+    </div>
+  </div>
+  <div class="foot"><span>昨日的明天 · Dreamcore</span><span>质量</span></div>
+</section>
+
+<!-- 8 -->
+<section class="s">
+  <div class="kicker">取证</div>
+  <h2>不跑截图不算数——但量具也会骗人</h2>
+  <div class="grid g2" style="margin-top:20px">
+    <div class="card"><b>shot3d.ps1 · 真窗口</b><span>启动构建包，GDI 截图，合成 W/S/鼠标，逐帧 md5 + luma 双判据；末尾真按一次 Esc。护栏：<span class="mono">GetForegroundWindow</span> 不符即 throw，<span class="mono">finally</span> 无条件 Kill。</span></div>
+    <div class="card"><b>title_click_probe.ps1 · 真点击</b><span><span class="mono">SendInput</span> 点"开始"。before 帧 luma&gt;45 直接 throw <b>拒绝下判据</b>，after 需 &gt;45 且 &gt;before×2 才判 "CLICK STARTS THE GAME"。</span></div>
+    <div class="card"><b>title_probe.ps1 · 零输入</b><span>连拍 t0/t6/t12/t24，证明标题页不会自己前进——反向对照，防"其实是超时自动开局"。</span></div>
+    <div class="card"><b>CaptureAnomalies · 编辑态</b><span>10 组异常 before/after 640×360，逐组 md5 必须 differs。自陈边界：不等于出货画面。</span></div>
+  </div>
+  <h3>已登记的量具局限（诚实，不当已解决）</h3>
+  <div class="grid g2">
+    <p class="dim" style="font-size:17px">· 帧哈希对"腿会不会摆"<b class="warn" style="font-weight:700">没有判据力</b>——FilmGrain 是时域噪声、6 盏灯在闪，任意两帧必然 DIFFER。只能靠肉眼帧 + 数字口径。<br>
+    · 中心/四角亮度比 1.202 &gt; 1，读数是暗端墙面和内容给的，<b>不是滤镜给的</b>——不能当暗角证据，最终退回肉眼。<br>
+    · md5 差分抓不到"本体摆对没有"——信报箱门悬空正是它的盲区。</p>
+    <p class="dim" style="font-size:17px">· <span class="mono">Mouse Y</span> 是平滑轴，30px 合成移动摊到每帧约 0.1°，读成"低头没反应"——那是<b class="warn" style="font-weight:700">量具坏了</b>，不是玩家按不动。改三段各 250px。<br>
+    · ESC 退出码 <span class="mono">0xC0000005</span> ≠ 退出失败（Mono + d3d12 关栈访问违例，且关栈要 9s）。<br>
+    · mesh 节点 <span class="mono">transform.position</span> 恒 (0,0,0)，必须取 <span class="mono">bounds.center</span>。</p>
+  </div>
+  <div class="foot"><span>昨日的明天 · Dreamcore</span><span>取证</span></div>
+</section>
+
+<!-- 9 -->
+<section class="s">
+  <div class="kicker">取舍</div>
+  <h2>八小时里改判了四次</h2>
+  <div class="grid g2" style="margin-top:22px;flex:1">
+    <div>
+      <h3 style="margin-top:0">推翻重来的一次</h3>
+      <p class="dim">开赛定的选型是 <b>2D 全屏图 + 点击找不同</b>（ImageGen 生图）。
+      跑到玩法核心时发现结构缺陷：玩家从没见过"正常"。
+      于是把交付轨道整个换成<b class="lamp" style="font-weight:700">真 3D 第一人称</b>，
+      2D 保底废弃并从仓库删除。</p>
+      <p class="dim" style="margin-top:12px">换的核心理由：Blender 相对生图的碾压点是
+      <b class="ink" style="font-weight:700;color:var(--ink)">同景由摄像机几何保证</b>——不必祈祷模型配合。</p>
+      <h3>代价最高的一次实测</h3>
+      <p class="dim">M0 探针专门验"Blender 集合能不能带着进 FBX"。
+      结论是零命中，直接决定了整套 wire 契约的形态。
+      <b class="warn" style="font-weight:700">如果不做这个探针，会按集合分组写完整个管线再全部返工。</b></p>
+    </div>
+    <div>
+      <h3 style="margin-top:0">砍掉与改判</h3>
+      <table>
+        <tr><th>项</th><th>处置</th></tr>
+        <tr><td>2D 保底轨道</td><td>废弃并删除，构建切 3D 单轨</td></tr>
+        <tr><td>好结局挂历彩蛋</td><td>砍（无资产、预算不足）</td></tr>
+        <tr><td>"零第三方资产"声明</td><td>两次改判，红线收紧为<b>仅 CC0，CC-BY 不接受</b></td></tr>
+        <tr><td>Empty 包裹传分组</td><td>实测否掉，会把 100× 搬到父级</td></tr>
+        <tr><td>"M3 超时砍到 6 条异常"</td><td>降级预案未启用，10 组全保</td></tr>
+        <tr><td>脚本后端</td><td>声明口径由 IL2CPP 改判为 <b>Mono</b>（产物实证）</td></tr>
+      </table>
+      <h3>时间盒纪律</h3>
+      <p class="dim">M1 结束必须已有一个<b class="lamp" style="font-weight:700">可提交物</b>（灰盒 + 数据层异常）。
+      美术做不完不影响玩法完整性——这条让后面所有的美术追加都是"加分项"而不是"生死项"。</p>
+    </div>
+  </div>
+  <div class="foot"><span>昨日的明天 · Dreamcore</span><span>取舍</span></div>
+</section>
+
+<!-- 10 -->
+<section class="s">
+  <div class="kicker">素材</div>
+  <h2>全部第三方资产是 CC0，但"零第三方"这句不成立</h2>
+  <table style="margin-top:22px">
+    <tr><th>类别</th><th>来源</th><th>许可</th><th>数量</th></tr>
+    <tr><td>走廊壳体 / 门窗 / 灯具 / 10 组异常 / 玩家身体</td><td>Blender Python 脚本自建</td><td>自有</td><td>1,008 行</td></tr>
+    <tr><td>道具网格</td><td>Poly Haven</td><td>CC0 1.0 Universal</td><td>13 件资产 → 15 个摆放实例</td></tr>
+    <tr><td>墙面地面 PBR 贴图</td><td>ambientCG</td><td>CC0</td><td>7 套 1K</td></tr>
+    <tr><td>道具随件贴图</td><td>Poly Haven</td><td>CC0</td><td>13 套</td></tr>
+    <tr><td>音频</td><td>ffmpeg 程序合成</td><td>自有</td><td>4 条</td></tr>
+  </table>
+  <div class="grid g2" style="margin-top:22px">
+    <div class="card"><b>许可证是逐件抓页面核的</b>
+      <span>Poly Haven 的 <span class="mono">attribution</span> API 端点 404，只能抓
+      <span class="mono">polyhaven.com/a/&lt;id&gt;</span> 页面里的字符串
+      "CC0 1.0 Universal"。命中数 &lt;1 直接跳过并<b>判红</b>。</span></div>
+    <div class="card"><b>音频没有一条是采样</b>
+      <span>50Hz 市电嗡鸣 + 粉噪（楼道底噪）· 白噪磁带咔哒（走带=做判定）·
+      45Hz 闷响（异常落地的听觉锚）· 棕噪脚步。全部 ffmpeg 合成。</span></div>
+  </div>
+  <div class="foot"><span>昨日的明天 · Dreamcore</span><span>素材与许可</span></div>
+</section>
+
+<!-- 11 -->
+<section class="s">
+  <div class="cover" style="opacity:.28"></div><div class="veil"></div>
+  <div class="rel">
+    <div class="kicker">玩到它</div>
+    <h2>下载 62.6MB，解压，双击</h2>
+    <div class="grid g2" style="margin-top:26px;flex:1">
+      <div>
+        <div class="card" style="margin-bottom:16px"><b>演示 / 下载</b>
+          <span class="mono" style="font-size:16px;color:var(--win);word-break:break-all">
+          github.com/highho/dreamcore/releases/tag/v1.0-jam</span><br>
+          <span>Windows x64 · DirectX 12 · Mono 后端 · 无需安装</span></div>
+        <div class="card"><b>代码仓库（含完整产线与门禁）</b>
+          <span class="mono" style="font-size:16px;color:var(--win);word-break:break-all">
+          github.com/highho/dreamcore</span><br>
+          <span>23 个提交 · README · docs/ARCHITECTURE.md 架构详解</span></div>
+      </div>
+      <div>
+        <h3 style="margin-top:0">操作</h3>
+        <table>
+          <tr><th>键</th><th>作用</th></tr>
+          <tr><td>Enter / Space / 点「开 始」</td><td>从标题页开局</td></tr>
+          <tr><td>W A S D · 鼠标</td><td>慢走与转向（梦核感：游荡而不是奔跑）</td></tr>
+          <tr><td>走到走廊两端的门</td><td>结算一层：尽头=前进，起点=回头</td></tr>
+          <tr><td>Esc</td><td>退出</td></tr>
+        </table>
+        <p class="dim" style="margin-top:14px;font-size:17px">
+          <b class="warn" style="font-weight:700">必须先完整解压</b>再双击 exe——一个 Windows 构建包 ≠ exe + _Data，
+          还要同目录的 <span class="mono">UnityPlayer.dll</span> 与 <span class="mono">MonoBleedingEdge/</span>。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 12 -->
+<section class="s">
+  <div class="rel" style="justify-content:center;align-items:center;text-align:center">
+    <div class="kicker">两种结局</div>
+    <p class="lead" style="max-width:820px;line-height:2">
+      <span class="win">你出来了。<br>楼道的声控灯一盏盏亮起来，全是真的。</span><br><br>
+      <span class="dim">你还在这儿。<br>挂历上圈着的那天，从来没有过。</span>
+    </p>
+    <p style="margin-top:52px;font-size:18px;letter-spacing:.2em" class="faint">
+      《昨日的明天》· 8 小时单人作品 · 谢谢</p>
+  </div>
+</section>
+
+</div>
+<div id="bar"></div><div id="num"></div>
+<script>
+  const S=[...document.querySelectorAll('.s')];let i=0;
+  function fit(){const k=Math.min(innerWidth/1280,innerHeight/720);
+    document.getElementById('stage').style.transform=
+      'translate(-50%,-50%) scale('+k+')';}
+  function go(n){i=Math.max(0,Math.min(S.length-1,n));
+    S.forEach((s,k)=>s.classList.toggle('on',k===i));
+    document.getElementById('bar').style.width=((i+1)/S.length*100)+'%';
+    document.getElementById('num').textContent=(i+1)+' / '+S.length;}
+  addEventListener('resize',fit);
+  addEventListener('keydown',e=>{
+    if(['ArrowRight','ArrowDown','PageDown',' '].includes(e.key)){e.preventDefault();go(i+1)}
+    else if(['ArrowLeft','ArrowUp','PageUp'].includes(e.key)){e.preventDefault();go(i-1)}
+    else if(e.key==='Home')go(0); else if(e.key==='End')go(S.length-1);});
+  addEventListener('click',e=>{if(e.clientX<innerWidth*0.28)go(i-1);else go(i+1)});
+  fit();go(0);
+</script>
+</body>
+</html>
