@@ -14,13 +14,16 @@ namespace Dreamcore.EditorTools
     /// <summary>
     /// 3D 轨道一键引导（本仓库唯一的出货轨道；2D 保底已于 2026-10-17 由用户裁定废弃并删除）：
     ///   Unity.exe -batchmode -quit -projectPath <proj> -executeMethod Dreamcore.EditorTools.Bootstrap3D.Run
-    /// 生成 Main3D.unity：第一人称 + 真实走廊 FBX（Corridor.fbx，MeshRenderer 涂占位材质并补碰撞体、
-    ///   Light_ 锚点收养点光 + 灯闪、extraFigure 挂 billboard）+ 两端判定门 + 复用梦核滤镜 + HUD。
+    /// 生成 Main3D.unity：第一人称 + 真实走廊 FBX（Corridor.fbx，MeshRenderer 按名分派 ambientCG PBR
+    ///   材质并按世界尺寸做 world-scale tiling、补碰撞体、Light_ 锚点收养点光 + 灯闪、extraFigure 挂 billboard）
+    ///   + 两端判定门 + 复用梦核滤镜 + HUD（ScreenSpaceCamera）。
     ///
     /// 构建入口：-executeMethod Dreamcore.EditorTools.Bootstrap3D.Activate3D → 后续 build 出 3D 版。
     ///
-    /// 走廊实测世界尺寸（套 FbxYaw=90 后，logs/verify-fbx.log）：宽 2.91m × 高 3.10m × 长 24.05m，
-    /// 玩家沿 +Z 行走（z 从 0 到 24.05）。CorridorWidth/Height/Length 三个常量保留作文档参考。
+    /// 走廊实测世界尺寸（套 FbxYaw=90 后，logs/verify-asm.log 的 active base 聚合包围盒）：
+    /// 宽 2.50m × 高 3.10m × 长 24.05m，玩家沿 +Z 行走（z 从 0 到 24.05）。
+    /// 旧口径"宽 2.91m"作废：那是窗外楼板露在墙外约 0.5m 撑出来的假宽度，M3 把窗板收进墙体后为 2.50m。
+    /// CorridorWidth/Height/Length 三个常量保留作文档参考。
     /// </summary>
     public static class Bootstrap3D
     {
@@ -28,6 +31,8 @@ namespace Dreamcore.EditorTools
         const string ProfilePath = "Assets/_Project/Settings/VolumeProfile-Dreamcore.asset";
         const string FontPath = "Assets/_Project/Fonts/simhei.ttf";
         const string CorridorFbxPath = "Assets/Content/3D/Corridor.fbx";
+        const string TexRoot = "Assets/Content/Textures";   // 全 CC0：墙面/地面来自 ambientCG（fetch_textures.sh），Prop_* 来自 Poly Haven（fetch_props.sh）
+        const string AudioRoot = "Assets/_Project/Audio";   // ffmpeg 纯合成，由 ./tools/make_audio.sh 落盘
 
         // FBX 根绕 Y 的旋转角度：走廊长度必须落在世界 +Z。唯一落点，装配与验收都读它。
         // 实测（Task 6 Step 6，logs/verify-fbx-yaw.log 用 -90f 跑）：-90f 下 size=(2.91,3.10,24.05)
@@ -68,11 +73,10 @@ namespace Dreamcore.EditorTools
 
             var root = new GameObject("Corridor").transform;
 
-            Material matFloor = MakeMat("Floor", new Color(0.30f, 0.28f, 0.25f));
-            Material matWall = MakeMat("Wall", new Color(0.55f, 0.54f, 0.50f));
-            Material matWainscot = MakeMat("Wainscot", new Color(0.22f, 0.38f, 0.26f)); // 绿漆墙裙
-            Material matCeil = MakeMat("Ceiling", new Color(0.62f, 0.61f, 0.58f));
-            Material matBlack = MakeUnlit("ShadeBlack", new Color(0.02f, 0.02f, 0.02f));
+            var mats = MakeMats();
+            // tile 签名（材质名+取整后的 tile）相同的网格共用一份实例：走廊里 24m 长的大面只有
+            // 四五块，逐网格 new 会把场景文件灌成几十份近重复材质。
+            var tiledCache = new Dictionary<string, Material>();
 
             var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(CorridorFbxPath);
             if (fbx == null) Debug.LogError("[Bootstrap3D] 缺 " + CorridorFbxPath + "，先跑 ./tools/blender_build.sh");
@@ -87,9 +91,9 @@ namespace Dreamcore.EditorTools
             // 所以 base/anom 的二分只能问 AnomalyResolver.IsAnomalyWireName（命名约定的唯一真相），
             // 既不去 FindDeep("base"/"anom")（那种节点不存在，会让下面三步整段静默不跑），
             // 也不在这里复制正则或自己写前缀判断。
-            PaintShell(inst.transform, matFloor, matWall, matWainscot, matCeil);
+            PaintShell(inst.transform, mats, tiledCache);
             AdoptLights(inst.transform);
-            AttachBillboards(inst.transform, matBlack);
+            AttachBillboards(inst.transform, mats);
 
             // 判定门：起点=回头，尽头=前进（走廊沿 +Z 从 0 到 24.05，见 R5 实测；x 一律 0=中线）
             MakeGate("GateBack", root, new Vector3(0f, 1.5f, 1.2f), false);
@@ -101,6 +105,7 @@ namespace Dreamcore.EditorTools
             player.transform.position = new Vector3(0f, 0.1f, 1.8f);
             player.AddComponent<CharacterController>(); // 场景内序列化：装配段要能读到，运行期 FPC.Awake 会 GetComponent 复用
             var fpc = player.AddComponent<FirstPersonController>();
+            fpc.footstepClip = LoadClip("footstep.wav");
             var camGo = new GameObject("Main Camera");
             camGo.tag = "MainCamera";
             camGo.transform.SetParent(player.transform, false);
@@ -115,24 +120,37 @@ namespace Dreamcore.EditorTools
             camData.volumeLayerMask = ~0;
             fpc.cameraTransform = camGo.transform;
 
-            // 全局 Volume（复用 2D 版梦核滤镜 Profile）
+            // 全局 Volume。注意：VolumeProfile-Dreamcore.asset 出厂时 components 是空的，
+            // "复用了 2D 版滤镜"这个说法在资产层面并不成立——滤镜得在这里真填进去。
             var volGo = new GameObject("GlobalVolume");
             var vol = volGo.AddComponent<Volume>();
             vol.isGlobal = true;
-            vol.sharedProfile = AssetDatabase.LoadAssetAtPath<VolumeProfile>(ProfilePath);
+            vol.sharedProfile = EnsureDreamcoreProfile();
             if (vol.sharedProfile == null)
-                Debug.LogWarning("[Bootstrap3D] 未找到 " + ProfilePath + "，先跑 2D 版 Bootstrap 生成滤镜 Profile。");
+                Debug.LogError("[Bootstrap3D] 没有 VolumeProfile 资产 " + ProfilePath + "，梦核滤镜整条链缺失。");
+
+            // 环境底噪：60s 粉噪+50Hz 电流声，全局循环、不做 3D 定位（spatialBlend=0）。
+            // 挂在场景根而非相机下：相机跟着玩家转，底噪跟着相机走会听出"声音粘在耳上"。
+            var ambGo = new GameObject("AmbientAudio");
+            var amb = ambGo.AddComponent<AudioSource>();
+            amb.clip = LoadClip("ambient_loop.wav");
+            amb.loop = true;
+            amb.playOnAwake = true;
+            amb.spatialBlend = 0f;
+            amb.volume = 0.35f;
 
             // 玩法循环
             var loopGo = new GameObject("GameLoop");
             var loop = loopGo.AddComponent<Loop3D>();
+            loop.anomalyCue = LoadClip("anomaly_cue.wav");
+            loop.decisionClip = LoadClip("tape_click.wav");
             // FBX 前缀名 → 解析 → 钉成"正常"初态 → 交给 Loop3D（root 与实例化同一棵树）
             var entries = AnomalyResolver.Resolve(root);
             foreach (var e in entries) e.SettleToNormal();
             loop.anomalies = entries;
             if (entries.Count == 0) Debug.LogError("[Bootstrap3D] 异常表为空，玩法不成立。");
 
-            CreateHud();
+            CreateHud(cam);
             new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
 
             EditorSceneManager.SaveScene(scene, Scene3DPath);
@@ -141,28 +159,91 @@ namespace Dreamcore.EditorTools
         // ---------- FBX 收养 ----------
 
         /// <summary>
-        /// 网格壳：涂占位材质 + 给 base 补碰撞体（FBX 两者都没有；不补就是穿墙走）。
+        /// 网格壳：按名分派真实 PBR 材质 + 给 base 补碰撞体（FBX 两者都没有；不补就是穿墙走）。
         /// 含子层级——只遍历直接子节点这种写法在扁平层级下恰好够用，但递归更稳，
         /// Task 8/9 若引入嵌套容器不必回来改这里。
         /// base（非 wire 名）＝走廊本体，每个都要碰撞体；wire 名＝异常件（show_*），
         /// 涂材质但绝不补碰撞体，否则异常一出现就多出一批隐形墙。
+        /// 异常件按**语义**分材质，不再统一涂墙色：anom10 的本体是"窗外该有楼的地方全黑"，
+        /// 涂成墙色会把它渲染成"窗外变亮"——与这条异常要传达的东西正好相反。
         /// </summary>
-        static void PaintShell(Transform shellRoot, Material floor, Material wall, Material wainscot, Material ceiling)
+        static void PaintShell(Transform shellRoot, Mats mats, Dictionary<string, Material> cache)
         {
             foreach (var mr in shellRoot.GetComponentsInChildren<MeshRenderer>(true))
             {
                 string n = mr.name;
                 if (AnomalyResolver.IsAnomalyWireName(n))
                 {
-                    mr.sharedMaterial = wall;   // 异常件占位色，正式贴图是 Task 8 的事
+                    Apply(mr, AnomSurf(n, mats), cache);
                     continue;                   // 关键：不给异常件补 Collider
                 }
-                if (n == "Floor") mr.sharedMaterial = floor;
-                else if (n == "Ceiling") mr.sharedMaterial = ceiling;
-                else if (n.StartsWith("Wainscot")) mr.sharedMaterial = wainscot;
-                else mr.sharedMaterial = wall;
+                var s = SurfFor(n, mats);
+                if (s == null)
+                {
+                    // 兜底涂墙色只为画面不崩，不等于登记过了：Verify3D 那张独立的名单表会当场红。
+                    Debug.LogError("[Bootstrap3D] 未登记的 base 名：" + n + "，先给 SurfaceRules 加一条");
+                    s = mats.wall;
+                }
+                Apply(mr, s, cache);
                 if (mr.GetComponent<Collider>() == null) mr.gameObject.AddComponent<BoxCollider>();
             }
+        }
+
+        /// <summary>
+        /// base 网格名 → 表面。有序，第一条命中即生效，所以宽泛前缀必须排在具体前缀之后：
+        /// Doorway（门斗里的黑）先于 Door（门板木头），LampBase（白灯座）先于 Lamp（自发光灯管），
+        /// WindowFrame/WindowBar/WindowRail 先于 Window（窗外衬板）。
+        /// 返回 null 表示这个名字没登记过——装配不猜，交给验收门的独立表判红。
+        /// 名字口径的唯一真相在 blender/gen_corridor.py；改那里的命名要同步这张表和 Verify3D 的名单。
+        /// </summary>
+        static Surf SurfFor(string n, Mats m)
+        {
+            // 杂物一族单靠前缀查表，不进下面那条有序规则链：slug 是外部资产名，
+            // 用 StartsWith 逐条写会把十三个名字焊死在这张表里，改一件道具要动两处。
+            // 查不到就 return null 交给"未登记 base 名"那条门判红，不兜底涂墙色。
+            if (n.StartsWith("Prop_"))
+            {
+                int cut = n.IndexOf("__", System.StringComparison.Ordinal);
+                string slug = cut < 0 ? n.Substring(5) : n.Substring(5, cut - 5);
+                Surf ps;
+                if (m.props != null && m.props.TryGetValue(slug, out ps)) return ps;
+            }
+            if (n.EndsWith("_Handle")) return m.metal;                    // 门把手 / 铁门把手
+            if (n.StartsWith("Doorway")) return m.black;                  // 门洞深处的黑，不是门板
+            if (n.StartsWith("DoorFrame")) return m.wood;
+            if (n.StartsWith("DoorPlate")) return m.paintedGreen;         // 搪瓷门牌
+            if (n.StartsWith("Door")) return m.wood;
+            if (n == "Glass_R") return m.glass;                           // 唯一透明件
+            if (n.StartsWith("WindowFrame")) return m.paintedWhite;       // 旧钢窗刷白漆
+            if (n.StartsWith("WindowBar") || n == "WindowRail") return m.metal;  // 防盗栏
+            if (n.StartsWith("Window")) return m.window;                  // WindowBuildings 衬板
+            if (n.StartsWith("LampBase")) return m.paintedWhite;
+            if (n.StartsWith("Lamp")) return m.lampGlow;                  // 灯管自己发光（Unlit）
+            if (n == "ExitSign") return m.green;                          // 安全出口牌常亮
+            if (n.StartsWith("Wainscot")) return m.wainscot;
+            if (n.StartsWith("Mailbox")) return m.paintedGreen;
+            if (n.StartsWith("Poster")) return m.paper;
+            if (n.StartsWith("Pipe") || n.StartsWith("CableTrunk")) return m.metal;
+            if (n.StartsWith("FloorStrip")) return m.metal;               // 地面铜分格条
+            if (n == "Floor") return m.floor;
+            if (n == "Ceiling") return m.ceiling;
+            if (n.StartsWith("EndDoor")) return m.paintedGreen;           // 楼梯间绿漆铁门
+            if (n.StartsWith("Bike")) return m.metal;
+            if (n.StartsWith("Wall") || n == "EndWall") return m.wall;
+            return null;
+        }
+
+        /// <summary>异常件语义表：9 个 show 名里除人影外全部按"该长什么样"给材质。</summary>
+        static Surf AnomSurf(string wire, Mats mats)
+        {
+            if (wire.Contains("emergencyLight")) return mats.green;   // 应急灯自己发光，暗走廊里才看得见
+            if (wire.Contains("extraFigure")) return mats.black;
+            if (wire.Contains("WaterPuddle")) return mats.water;       // 高 smoothness = 点光下反光的一滩水
+            if (wire.Contains("RedWire")) return mats.red;
+            if (wire.Contains("WindowBuildings")) return mats.black;   // 全黑，不是"变亮"
+            if (wire.Contains("Door") || wire.Contains("Mailbox")) return mats.wood;
+            if (wire.Contains("Shoes")) return mats.darkCloth;
+            return mats.metal;                                      // 倒下的自行车＝金属件
         }
 
         /// <summary>
@@ -189,12 +270,12 @@ namespace Dreamcore.EditorTools
         }
 
         /// <summary>人影要始终对着玩家才有效——billboard 组件只能由 Unity 挂，FBX 给不了。</summary>
-        static void AttachBillboards(Transform shellRoot, Material black)
+        static void AttachBillboards(Transform shellRoot, Mats mats)
         {
             var fig = FindDeep(shellRoot, "anom02_show_extraFigure");
             if (fig == null) { Debug.LogWarning("[Bootstrap3D] 没找到 anom02_show_extraFigure，anom02 不会有人影。"); return; }
             var mr = fig.GetComponent<MeshRenderer>();
-            if (mr != null) mr.sharedMaterial = black;
+            if (mr != null) mr.sharedMaterial = mats.black.Mat;
             if (fig.GetComponent<ShadeFigure>() == null) fig.gameObject.AddComponent<ShadeFigure>();
         }
 
@@ -209,11 +290,17 @@ namespace Dreamcore.EditorTools
             return null;
         }
 
-        static void CreateHud()
+        static void CreateHud(Camera cam)
         {
             var canvasGo = new GameObject("Hud3D", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster), typeof(Hud3D));
             var canvas = canvasGo.GetComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            // spec §8 第 4 项裁定换 ScreenSpaceCamera：Overlay 模式的 UI 不进后处理链，
+            // 梦核滤镜（Bloom/颜色分级/颗粒）吃不到 HUD，文字像贴在外面上、和走廊两个世界。
+            canvas.renderMode = RenderMode.ScreenSpaceCamera;
+            canvas.worldCamera = cam;
+            // planeDistance 必须 > camera.nearClipPlane(0.1f) 才不被裁掉；取 0.4f 是因为
+            // CharacterController 默认半径 0.5f，玩家最多把相机送到离墙 ~0.5m，UI 不会扎进几何体被挡掉。
+            canvas.planeDistance = 0.4f;
             var scaler = canvasGo.GetComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920, 1080);
@@ -241,22 +328,265 @@ namespace Dreamcore.EditorTools
 
         // ---------- helpers ----------
 
-        static Material MakeMat(string name, Color c)
+        /// <summary>一种表面 = 一份材质 + 它该多少米重复一次贴图。Tile&lt;=0 表示不参与 world-scale（纯色 Unlit 件）。</summary>
+        private class Surf
         {
-            var sh = Shader.Find("Universal Render Pipeline/Lit");
-            var m = new Material(sh);
-            m.name = name;
+            public readonly Material Mat;
+            public readonly float Tile;
+            public Surf(Material mat, float tile) { Mat = mat; Tile = tile; }
+        }
+
+        private class Mats
+        {
+            public Surf floor, wall, wainscot, ceiling, wood, water, darkCloth, window, black, green, red;
+            public Surf metal, paintedGreen, paintedWhite, paper, glass, lampGlow;
+            /// <summary>杂物段：键＝Prop_ 前缀后的 slug（实例名 Prop_&lt;slug&gt;__&lt;n&gt; 切掉后缀即得）。</summary>
+            public Dictionary<string, Surf> props;
+        }
+
+        /// <summary>
+        /// 表面表。贴图名与资产 id 解耦：代码只认 Content/Textures/&lt;dir&gt;/{BaseColor,Normal}.jpg，
+        /// 换 ambientCG 资产改 fetch_textures.sh 的 IDS 与这里的 dir，不必动装配逻辑。
+        /// tint 是乘在真实贴图上的，一律给接近白的色，深色 tint 会把走廊压成一片糊。
+        /// </summary>
+        static Mats MakeMats()
+        {
+            var m = new Mats();
+            // M6 质感线：贴图目录与 fetch_textures.sh 的 IDS 一一对应，换资产只改这两处。
+            // normalScale 单独成参是实机截图（logs/shots4/03）逼出来的：脏灰泥按 1.0 贴在 24m 墙面上
+            // 把白灰墙读成毛石窑洞，梦核走廊要的是"刷过石灰的平墙"，不是浮雕。
+            m.floor = Pbr("Floor", "Terrazzo002", new Color(0.86f, 0.84f, 0.80f), 0.50f, 2.0f, 0f, 0.70f);        // 水磨石
+            m.wall = Pbr("Wall", "Plaster007", new Color(0.92f, 0.91f, 0.88f), 0.10f, 2.2f, 0f, 0.35f);           // 石灰白墙
+            m.wainscot = Pbr("Wainscot", "Tiles032", new Color(0.95f, 1.00f, 0.97f), 0.55f, 1.0f, 0f, 0.60f);     // 墨绿釉面砖墙裙
+            m.ceiling = Pbr("Ceiling", "Plaster007", new Color(0.95f, 0.94f, 0.92f), 0.08f, 2.2f, 0f, 0.35f);
+            m.wood = Pbr("Wood", "Wood073", new Color(0.92f, 0.86f, 0.80f), 0.28f, 1.0f, 0f, 0.60f);              // 木门/门套
+            // M6 结构段新增的五类表面。靠 tint/smoothness/metallic/tile 把钢门、栏杆、搪瓷牌、纸广告区分开。
+            // metal 的 smoothness/metallic 同样被截图打回过一次：0.72/0.55 让 24m 长的线槽在每盏灯下
+            // 拉出一道过曝高光带（logs/shots4/01 里那条"悬在空中的黑飘带"），哑光金属才贴得住筒子楼。
+            m.metal = Pbr("Metal", "Concrete002", new Color(0.52f, 0.53f, 0.55f), 0.34f, 0.35f, 0.22f, 0.40f);    // 把手/防盗栏/管/分格条
+            m.paintedGreen = Pbr("PaintedGreen", "PaintedMetal006", new Color(0.92f, 0.98f, 0.96f), 0.35f, 1.2f, 0.15f, 0.70f);  // 绿漆铁门/信箱/门牌
+            m.paintedWhite = Pbr("PaintedWhite", "Plaster007", new Color(0.78f, 0.79f, 0.78f), 0.30f, 0.40f, 0f, 0.25f); // 白漆窗框/灯座
+            m.paper = Pbr("Paper", "Paper003", new Color(0.90f, 0.88f, 0.82f), 0.12f, 0.5f, 0f, 0.50f);           // 小广告：揉皱的白纸
+            m.water = Pbr("Water", "Concrete002", new Color(0.42f, 0.55f, 0.64f), 0.92f, 1.0f);      // 渗水：高光泽才有反光
+            m.darkCloth = Pbr("DarkCloth", "Concrete002", new Color(0.30f, 0.24f, 0.22f), 0.05f, 0.5f);
+            // 窗板自发光（Unlit 淡蓝灰）：夜里窗外比室内亮，这是"该有楼的地方"的正常态；
+            // 异常态由 anom10 的黑面板盖上去，一亮一黑才有对比。
+            m.window = new Surf(Unlit("WindowPale", new Color(0.62f, 0.70f, 0.78f)), 0f);
+            // 灯管亮度：Unlit 的 RGB 就是最终出射值，原来的 (1.00,0.93,0.76) 在 Bloom 阈值之上，
+            // 头顶那根 0.92m 的灯管被渲染成一整块过曝白斑（logs/shots4/01）；但一刀压到 0.62 又反过来
+            // 成了天花板上一块卡其色硬纸板（logs/shots5/01）。0.86 是这两头的中间值：仍比四周被点光照到
+            // 的墙面亮，"它是光源"这件事读得出来，但不再糊掉一片天花。
+            m.lampGlow = new Surf(Unlit("LampGlow", new Color(0.86f, 0.80f, 0.64f)), 0f);              // 灯管自己亮
+            m.black = new Surf(Unlit("ShadeBlack", new Color(0.02f, 0.02f, 0.02f)), 0f);
+            m.green = new Surf(Unlit("EmergencyGreen", new Color(0.10f, 0.80f, 0.32f)), 0f);          // 应急灯/安全出口牌
+            m.red = new Surf(Unlit("WireRed", new Color(0.78f, 0.10f, 0.08f)), 0f);                   // 红电线
+            m.glass = Glass("GlassClear", new Color(0.72f, 0.80f, 0.86f, 0.30f));                     // 唯一透明件
+            // 杂物段（M6 T2）：Poly Haven 的 CC0 道具，每件吃自己的 BaseColor/Normal
+            // （tools/fetch_props.sh 落 Content/Textures/Prop_<slug>/）。
+            // tileMeters 一律 0 ⇒ 不参与 world-scale：道具的 UV 是作者按整件铺满的，
+            // 按米裁会把灭火器上的说明标签、挂钟的表盘撕成两半。
+            // tint 用纯白：这些贴图本身就是实色实物，再乘一层色只会脏。
+            // smoothness/metallic 按材质类别分开——塑料筐和铁皮柜在点光下的高光形态本来就不一样，
+            // 全给同一个值会让十几种道具读起来像同一种注塑玩具。
+            m.props = new Dictionary<string, Surf>();
+            AddProp(m, "chair", 0.25f, 0f);            // 塑料面课椅
+            AddProp(m, "bench", 0.20f, 0f);            // 油漆长凳（木头）
+            AddProp(m, "table", 0.22f, 0f);
+            AddProp(m, "medbox", 0.42f, 0.30f);        // 铁皮急救箱
+            AddProp(m, "shelf", 0.40f, 0.45f);         // 金属置物架
+            AddProp(m, "container", 0.35f, 0f);        // 塑料周转箱
+            AddProp(m, "crate", 0.30f, 0f);
+            AddProp(m, "sign", 0.50f, 0f);             // 警示牌要亮一点才跳出来
+            AddProp(m, "bag", 0.45f, 0f);              // 黑色垃圾袋是亮塑料
+            AddProp(m, "extinguisher", 0.65f, 0.35f);  // 红漆钢瓶：全走廊最亮的东西之一
+            AddProp(m, "plunger", 0.15f, 0f);          // 橡胶头＋木柄，哑光
+            AddProp(m, "clock", 0.30f, 0f);
+            AddProp(m, "alarm", 0.40f, 0f);            // 火警按钮塑料壳
+            return m;
+        }
+
+        static void AddProp(Mats m, string slug, float smoothness, float metallic)
+        {
+            m.props[slug] = Pbr("Prop_" + slug, "Prop_" + slug, Color.white, smoothness, 0f, metallic);
+        }
+
+        /// <summary>
+        /// 梦核滤镜：把 Bloom/暗角/颗粒/调色/色散五道 override 真填进 VolumeProfile 资产。
+        /// 幂等——已存在的 override 只调值不重复 Add（Bootstrap 每次 build.sh 都跑，
+        /// 不判重就会每跑一次多存一份同名子资产）。属性名按 URP 17.0.1 包源码核实：
+        /// ChromaticAberration 在这版是 ClampedFloatParameter intensity，不是旧版的 AnimationCurve amount；
+        /// 五个类型全在 UnityEngine.Rendering.Universal 下（不是 UnityEngine.Rendering）。
+        /// **关键**：VolumeProfile.Add 只 CreateInstance + 塞进 components 列表，
+        /// 不做 AssetDatabase.AddObjectToAsset —— 光调它存出来的资产是 5 个 {fileID: 0} 空引用，
+        /// 编辑器里看着有 override、构建产物里全是 null（和 URP Create() 丢 renderer 同一类坑）。
+        /// 所以每道 override 必须自己挂进资产文件。
+        /// </summary>
+        static VolumeProfile EnsureDreamcoreProfile()
+        {
+            var p = AssetDatabase.LoadAssetAtPath<VolumeProfile>(ProfilePath);
+            if (p == null) return null;
+
+            // 旧版（漏了 AddObjectToAsset）留下的 fileID:0 空引用要先清掉：
+            // Has/TryGet 内部对每个元素直接 .GetType()，留着它们下一次跑就 NullReferenceException。
+            int junk = p.components.RemoveAll(c => c == null);
+            if (junk > 0) Debug.Log("[Bootstrap3D] 清掉 " + junk + " 个空 override 引用（旧版没挂进资产文件）");
+
+            var bloom = GetOrAddOverride<Bloom>(p);
+            bloom.intensity.Override(0.55f);
+            bloom.threshold.Override(0.75f);
+            bloom.scatter.Override(0.60f);
+            bloom.highQualityFiltering.Override(true);
+
+            var vig = GetOrAddOverride<Vignette>(p);
+            vig.intensity.Override(0.38f);
+            vig.smoothness.Override(0.45f);
+
+            var grain = GetOrAddOverride<FilmGrain>(p);
+            grain.type.Override(FilmGrainLookup.Medium1);
+            grain.intensity.Override(0.45f);
+            grain.response.Override(0.60f);
+
+            var ca = GetOrAddOverride<ColorAdjustments>(p);
+            ca.postExposure.Override(-0.10f);
+            ca.saturation.Override(-10f);   // 梦核是褪色的，不是浓艳的
+            ca.contrast.Override(6f);
+
+            var ab = GetOrAddOverride<ChromaticAberration>(p);
+            ab.intensity.Override(0.22f);
+
+            EditorUtility.SetDirty(p);
+            AssetDatabase.SaveAssets();
+            return p;
+        }
+
+        /// <summary>取或建一道 override；新建的那份必须挂成 Profile 的子资产，否则存盘是空引用。</summary>
+        static T GetOrAddOverride<T>(VolumeProfile p)
+            where T : VolumeComponent
+        {
+            if (p.TryGet<T>(out var c)) return c;
+            c = p.Add<T>(true);
+            AssetDatabase.AddObjectToAsset(c, p);
+            return c;
+        }
+
+        static AudioClip LoadClip(string file)
+        {
+            var p = AudioRoot + "/" + file;
+            var c = AssetDatabase.LoadAssetAtPath<AudioClip>(p);
+            if (c == null) Debug.LogError("[Bootstrap3D] 缺音频 " + p + "，先跑 ./tools/make_audio.sh");
+            return c;
+        }
+
+        static Texture2D LoadTex(string dir, string map)
+        {
+            var p = TexRoot + "/" + dir + "/" + map + ".jpg";
+            var t = AssetDatabase.LoadAssetAtPath<Texture2D>(p);
+            if (t == null) Debug.LogError("[Bootstrap3D] 缺贴图 " + p + "，先跑 "
+                + (dir.StartsWith("Prop_") ? "./tools/fetch_props.sh" : "./tools/fetch_textures.sh"));
+            return t;
+        }
+
+        /// <summary>法线图得先让导入器知道它是法线：默认按普通图导入会走 sRGB 采样、凹凸方向全错。</summary>
+        static Texture2D LoadNormalTex(string dir)
+        {
+            var p = TexRoot + "/" + dir + "/Normal.jpg";
+            var imp = AssetImporter.GetAtPath(p) as TextureImporter;
+            if (imp == null)
+            {
+                Debug.LogError("[Bootstrap3D] 缺法线贴图 " + p + "，先跑 "
+                    + (dir.StartsWith("Prop_") ? "./tools/fetch_props.sh" : "./tools/fetch_textures.sh"));
+                return null;
+            }
+            if (imp.textureType != TextureImporterType.NormalMap)
+            {
+                imp.textureType = TextureImporterType.NormalMap;
+                imp.SaveAndReimport();
+            }
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(p);
+        }
+
+        static Surf Pbr(string name, string dir, Color tint, float smoothness, float tileMeters, float metallic = 0f, float normalScale = 1f)
+        {
+            var m = new Material(Shader.Find("Universal Render Pipeline/Lit")) { name = name };
+            var baseTex = LoadTex(dir, "BaseColor");
+            var nrm = LoadNormalTex(dir);
+            if (baseTex != null) m.SetTexture("_BaseMap", baseTex);
+            if (nrm != null)
+            {
+                m.SetTexture("_BumpMap", nrm);
+                m.SetFloat("_NormalScale", normalScale);
+                // SetTexture 不会替你开关键词；漏 _NORMALMAP 时 URP Lit 直接不采样法线，日志和资产断言全绿、画面却是平的。
+                m.EnableKeyword("_NORMALMAP");
+            }
+            m.SetColor("_BaseColor", tint);   // URP Lit 的基色属性是 _BaseColor，Material.color 那个 _Color 在这套 shader 里不存在
+            m.SetFloat("_Metallic", metallic);
+            m.SetFloat("_Smoothness", smoothness);
+            return new Surf(m, tileMeters);
+        }
+
+        /// <summary>
+        /// 透明玻璃。URP 17 的 Lit 不是"设个 alpha 就透明"——混合状态由 6 个隐藏 float + 一个关键词
+        /// 共同决定，属性名按包源码核实（Shaders/Lit.shader 的 Properties 与
+        /// Editor/ShaderGUI/BaseShaderGUI.cs:1018 MaterialPropertyBlock 那段真值表）：
+        /// _Surface=1(Transparent) 才开 _SURFACE_TYPE_TRANSPARENT，Alpha 混合下
+        /// _SrcBlend=SrcAlpha / _DstBlend=OneMinusSrcAlpha / _ZWrite=0，再把 renderQueue 提到透明队列。
+        /// 少任何一项都会得到"看着像 opaque 的灰板"，而材质列表和日志全都一切正常。
+        /// </summary>
+        static Surf Glass(string name, Color tintWithAlpha)
+        {
+            var m = new Material(Shader.Find("Universal Render Pipeline/Lit")) { name = name };
+            m.SetFloat("_Surface", 1f);
+            m.SetFloat("_Blend", 0f);                                   // BlendMode.Alpha
+            m.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            m.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            m.SetFloat("_SrcBlendAlpha", (float)UnityEngine.Rendering.BlendMode.One);
+            m.SetFloat("_DstBlendAlpha", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            m.SetFloat("_ZWrite", 0f);
+            m.SetFloat("_Cull", 2f);                                    // 单面玻璃用 Back，双面会重影
+            m.SetFloat("_Metallic", 0f);
+            m.SetFloat("_Smoothness", 0.92f);
+            m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            m.SetColor("_BaseColor", tintWithAlpha);
+            return new Surf(m, 0f);     // Tile<=0：不参与 world-scale（玻璃不铺贴图）
+        }
+
+        static Material Unlit(string name, Color c)
+        {
+            var m = new Material(Shader.Find("Universal Render Pipeline/Unlit")) { name = name };
+            m.SetColor("_BaseColor", c);
             m.color = c;
             return m;
         }
 
-        static Material MakeUnlit(string name, Color c)
+        /// <summary>
+        /// world-scale 贴图。Blender 原立方体**每面 UV 都铺满整个 0–1**，`transform_apply(scale=True)`
+        /// 只改顶点不改 UV（blender/probe_uv.py 实测：25 个网格各 1 个 UV 层），所以 24m 的地面和
+        /// 0.18m 的布鞋会各画一遍同样的贴图。这里按世界尺寸补 tiling：取 bounds 三条边里最长的两条
+        /// （最短的是板厚），除以该表面的 tile 米数。尺寸只认 Renderer.bounds——FBX 导入节点上
+        /// 只有世界量是米（spec §9.2，Mesh.bounds×lossyScale 数值对但轴不对）。
+        /// </summary>
+        static void Apply(MeshRenderer mr, Surf s, Dictionary<string, Material> cache)
         {
-            var sh = Shader.Find("Universal Render Pipeline/Unlit");
-            var m = new Material(sh);
-            m.name = name;
-            m.color = c;
-            return m;
+            if (s == null || s.Mat == null) return;
+            if (s.Tile <= 0f) { mr.sharedMaterial = s.Mat; return; }
+            var v = mr.bounds.size;
+            float hi = Mathf.Max(v.x, Mathf.Max(v.y, v.z));
+            float lo = Mathf.Min(v.x, Mathf.Min(v.y, v.z));
+            float mid = v.x + v.y + v.z - hi - lo;
+            float a = Mathf.Max(hi, mid), b = Mathf.Min(hi, mid);
+            if (b < 0.05f) { mr.sharedMaterial = s.Mat; return; }  // 读不到有效世界量就不猜 tile
+            float sx = Mathf.Max(1f, a / s.Tile), sy = Mathf.Max(1f, b / s.Tile);
+            string key = s.Mat.name + "|" + Mathf.RoundToInt(sx * 100f) + "x" + Mathf.RoundToInt(sy * 100f);
+            Material mat;
+            if (!cache.TryGetValue(key, out mat))
+            {
+                mat = new Material(s.Mat) { name = key };
+                mat.SetTextureScale("_BaseMap", new Vector2(sx, sy));
+                mat.SetTextureScale("_BumpMap", new Vector2(sx, sy));
+                cache[key] = mat;
+            }
+            mr.sharedMaterial = mat;
         }
 
         static GameObject MakeBox(string name, Transform parent, Vector3 center, Vector3 scale, Material mat)

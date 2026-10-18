@@ -12,6 +12,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import gen_corridor
 import gen_anomalies
+import gen_props
 
 BLEND_OUT = os.environ.get("CORRIDOR_BLEND", os.path.join(HERE, "Corridor.blend"))
 FBX_OUT = os.environ.get(
@@ -21,8 +22,10 @@ FBX_OUT = os.environ.get(
 bpy.ops.wm.read_factory_settings(use_empty=True)
 scene_coll = bpy.context.scene.collection
 
-gen_corridor.build(scene_coll)
+base_coll = gen_corridor.build(scene_coll)
 gen_anomalies.build(scene_coll, gen_corridor.LIGHT_ZS)
+# 杂物并入 base 集合（在 wire 自检之前：Prop_ 名字也进 all_names，将来被 hide 指认得到）
+prop_lines = gen_props.build(base_coll)
 
 # ---- 导出前的契约自检（本地即可判红，不必等 Unity 的 [Resolver] 警告）----
 # 前缀式 wire 语法必须与 AnomalyResolver.cs 的 WireGrammar 一致；这里只是发送前校验，
@@ -45,6 +48,11 @@ for o in wire_objs:
 if malformed or missing_targets:
     raise RuntimeError("wire 契约自检失败 malformed=%s hide缺目标=%s"
                        % (malformed, missing_targets))
+# 原型件（_Proto_）只用于复制，留在场景里会跟着导进 Corridor.fbx，
+# 被 Unity 侧"未登记 base 名"那条门判红——在这里先本地拦下。
+leaked = [o.name for o in bpy.data.objects if o.name.startswith("_Proto_")]
+if leaked:
+    raise RuntimeError("杂物原型没清干净：%s" % leaked)
 
 bpy.ops.wm.save_as_mainfile(filepath=BLEND_OUT)
 os.makedirs(os.path.dirname(FBX_OUT), exist_ok=True)
@@ -71,3 +79,6 @@ print("[BUILD] anom_ids=%s" % sorted(c.name for c in bpy.data.collections["anom"
 print("[BUILD] wire_names=%s" % sorted(o.name for o in wire_objs))
 print("[BUILD] wire_check=ok show=%d hide=%d hide_targets_ok=%d malformed=0"
       % (show_count, hide_count, hide_count))
+for line in prop_lines:
+    print("[BUILD] prop " + line)
+print("[BUILD] props=%d base_total=%d" % (len(prop_lines), len(bpy.data.collections["base"].objects)))
