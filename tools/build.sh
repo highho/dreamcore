@@ -28,7 +28,7 @@ if grep -q "error CS" "$JAM_ROOT/logs/activate3d.log"; then
   echo "!! 切换构建入口失败，见 logs/activate3d.log"; exit 1
 fi
 
-echo "[2/3] 构建 Windows x64（IL2CPP）..."
+echo "[2/3] 构建 Windows x64（脚本后端 Mono，产物里有 Dreamcore_Data/Managed/*.dll 为证）..."
 "$UNITY" -batchmode -quit -projectPath "$PROJ" \
   -buildWindows64Player "$OUT/$NAME.exe" \
   -logFile "$JAM_ROOT/logs/build-final.log"

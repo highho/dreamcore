@@ -20,6 +20,10 @@ namespace Dreamcore.D3
 
         public List<AnomalyEntry> anomalies = new List<AnomalyEntry>();
 
+        [Header("音效（Bootstrap3D 赋值；验收夹具里为 null 即静音跑）")]
+        public AudioClip anomalyCue;   // 异常落地的那一记低鸣，给"这层不对劲"一个听觉锚
+        public AudioClip decisionClip; // 玩家在判定门上做出选择＝磁带走带声
+
         public int Depth { get; private set; } = 1;
         public int Mistakes { get; private set; }
         public AnomalyEntry Current { get; private set; }
@@ -47,6 +51,8 @@ namespace Dreamcore.D3
         public void Report(bool goForward)
         {
             if (ended) return;
+
+            if (decisionClip != null) AudioSource.PlayClipAtPoint(decisionClip, SoundPos());
 
             bool correct = HasAnomaly ? !goForward : goForward;
             if (correct)
@@ -80,9 +86,17 @@ namespace Dreamcore.D3
                 Current = unused[i];
                 unused.RemoveAt(i);                   // 本局不重复
                 Current.Apply();
+                if (anomalyCue != null) AudioSource.PlayClipAtPoint(anomalyCue, SoundPos());
             }
 
             OnHudUpdate?.Invoke(Depth, Mistakes);
+        }
+
+        /// <summary>声源放在玩家耳朵上（PlayClipAtPoint 要 3D 位置）。验收夹具的临时场景没有主相机，退回原点。</summary>
+        Vector3 SoundPos()
+        {
+            var cam = Camera.main;
+            return cam != null ? cam.transform.position : Vector3.zero;
         }
 
         void RevertCurrent()

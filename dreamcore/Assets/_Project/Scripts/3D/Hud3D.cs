@@ -30,8 +30,8 @@ namespace Dreamcore.D3
                 if (endText == null) return;
                 endText.gameObject.SetActive(true);
                 endText.text = win
-                    ? "你出来了。\n天快亮了，楼道里还是那股消毒水的味道。"
-                    : "你没能出来。\n它还在原地等你，等下一个回来的孩子。";
+                    ? "你出来了。\n楼道的声控灯一盏盏亮起来，全是真的。"
+                    : "你还在这儿。\n挂历上圈着的那天，从来没有过。";
             };
         }
 

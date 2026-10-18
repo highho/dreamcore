@@ -16,9 +16,14 @@ namespace Dreamcore.D3
         [Range(-89f, 89f)] public float pitchLimit = 80f;
         public Transform cameraTransform; // 子相机（Bootstrap3D 绑定）
 
+        [Header("音效（Bootstrap3D 赋值；夹具里为 null 即静音跑）")]
+        public AudioClip footstepClip;
+        public float stepDistance = 1.5f; // 每走这么多米落一步，按位移不按时间：慢走节奏下步频才不飘
+
         CharacterController cc;
         float pitch;
         float vy;
+        float stepTravel;
 
         void Awake()
         {
@@ -39,6 +44,9 @@ namespace Dreamcore.D3
 
         void Update()
         {
+            // 出货包没有暂停菜单，而 Start() 就把光标锁了：不给这一条，玩家只能 Alt+F4 才能走。
+            if (Input.GetKeyDown(KeyCode.Escape)) Application.Quit();
+
             // 视角：yaw 转根，pitch 转子相机
             float mx = Input.GetAxis("Mouse X") * mouseSensitivity;
             float my = Input.GetAxis("Mouse Y") * mouseSensitivity;
@@ -57,6 +65,17 @@ namespace Dreamcore.D3
             else vy += Physics.gravity.y * Time.deltaTime;
             move.y = vy;
             cc.Move(move * Time.deltaTime);
+
+            // 落地才计数，跳跃/下落过程中的水平位移不算步（vy 已并进 move，这里只看 xz）
+            if (cc.isGrounded && footstepClip != null)
+            {
+                stepTravel += new Vector3(move.x, 0f, move.z).magnitude * Time.deltaTime;
+                if (stepTravel >= stepDistance)
+                {
+                    stepTravel = 0f;
+                    AudioSource.PlayClipAtPoint(footstepClip, transform.position);
+                }
+            }
         }
     }
 }
