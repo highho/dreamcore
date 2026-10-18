@@ -32,15 +32,35 @@ $OutDir = (Resolve-Path $OutDir).Path
 $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 Write-Host "desktop $($bounds.Width)x$($bounds.Height)"
 
+function Get-MeanLuma($bmp) {
+  # Sampled every 7th pixel: cheap enough for a 1700x1070 desktop grab, accurate enough to
+  # tell a near-black menu page from a lit corridor. Frame *hashes* cannot make that call --
+  # FilmGrain + lamp flicker make every pair of frames differ, so "00 vs 01 DIFFER" proves
+  # only that the pixel data changed, not that a menu was left behind.
+  $sum = [double]0; $n = 0
+  for ($y = 0; $y -lt $bmp.Height; $y += 7) {
+    for ($x = 0; $x -lt $bmp.Width; $x += 7) {
+      $c = $bmp.GetPixel($x, $y)
+      $sum += 0.299 * $c.R + 0.587 * $c.G + 0.114 * $c.B
+      $n++
+    }
+  }
+  return $sum / [double]$n
+}
+
+$script:lumaBy = @{}
+
 function Take-Shot([string]$name) {
   $path = Join-Path $OutDir $name
   $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
   $g = [System.Drawing.Graphics]::FromImage($bmp)
   $g.CopyFromScreen(0, 0, 0, 0, $bmp.Size)
   $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+  $luma = Get-MeanLuma $bmp
   $g.Dispose(); $bmp.Dispose()
   $h = (Get-FileHash $path -Algorithm MD5).Hash
-  Write-Host ("SHOT {0} md5={1} bytes={2}" -f $name, $h, (Get-Item $path).Length)
+  $script:lumaBy[$name] = $luma
+  Write-Host ("SHOT {0} md5={1} bytes={2} luma={3:F1}" -f $name, $h, (Get-Item $path).Length, $luma)
   return $h
 }
 
@@ -84,6 +104,16 @@ try {
   if ($fg -ne $p.MainWindowHandle) { throw ("foreground is not the player (fg=$fg want=$($p.MainWindowHandle))") }
   Write-Host "foreground confirmed = player"
 
+  # M8: the build boots into Title.unity now. Shoot the title page, then send Enter
+  # (TitleScreen also accepts Space/KeypadEnter). Pressing the key is the only way to prove
+  # the title really starts the game -- a dead button leaves this script staring at the same
+  # menu frame for the rest of the run, which would otherwise read as "the corridor is broken".
+  $hTitle = Take-Shot "00_title.png"
+  Hold-Key 0x0D 120                                    # VK_RETURN
+  Start-Sleep -Seconds 2                               # Main3D load + first rendered frames
+  if ($p.HasExited) { throw "player exited right after Enter: title -> game transition crashed" }
+  Write-Host "sent Enter to leave the title screen"
+
   $h0 = Take-Shot "01_start.png"
   Hold-Key 0x57 3000                       # W, 3s walk forward
   $h1 = Take-Shot "02_after_walk.png"
@@ -104,6 +134,12 @@ try {
   [void](Take-Shot "07_look_down_b.png")
   Move-Mouse 0 250
   $h5 = Take-Shot "08_look_down_max.png"
+
+  # The one-time hint bar holds 8s from scene start, then fades over 1.5s. Everything above
+  # takes >=11s, so 09 is the "hint gone" frame; 01_start.png (~2s in) is the frame where the
+  # bar is still on screen. Read the pair with the eye -- the hashes cannot tell you whether
+  # a UI element disappeared, only that *something* on screen changed.
+  $h9 = Take-Shot "09_hint_gone.png"
 
   # M7 legs: burst 4 frames while W is held.
   # At walkSpeed 1.6 and stepDistance 1.5 one footfall is ~0.94s, so frames 220ms apart
@@ -131,6 +167,12 @@ try {
   Write-Host ("  " + $h5 + " " + $l0 + " " + $l1 + " " + $l2 + " " + $l3 + " " + $l4)
 
   Write-Host "== frame hashes =="
+  $l00 = $script:lumaBy["00_title.png"]; $l01 = $script:lumaBy["01_start.png"]
+  # The title page is a near-black menu; the corridor is lit. A ratio this side of 2x means
+  # frame 00 was not the menu at all (someone/something left it before the screenshot).
+  Write-Host ("00 luma={0:F1}  01 luma={1:F1}" -f $l00, $l01)
+  Write-Host "00 vs 01 : $(if ($l00 -lt $l01 * 0.5) { 'DARK -> BRIGHT (Enter switched title -> corridor)' } else { 'SUSPECT (frame 00 is not the dark title page -- menu was already left before the shot!)' })"
+  Write-Host "00 vs 01 (hash) : $(if ($hTitle -ne $h0) { 'DIFFER' } else { 'SAME (Enter did nothing -- title is a dead end!)' })"
   Write-Host "01 vs 02 : $(if ($h0 -ne $h1) { 'DIFFER (camera moved)' } else { 'SAME (no movement!)' })"
   Write-Host "02 vs 03 : $(if ($h1 -ne $h2) { 'DIFFER (look works)' } else { 'SAME (mouse look dead!)' })"
   Write-Host "03 vs 04 : $(if ($h2 -ne $h3) { 'DIFFER' } else { 'SAME' })"

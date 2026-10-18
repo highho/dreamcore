@@ -28,6 +28,7 @@ namespace Dreamcore.EditorTools
     public static class Bootstrap3D
     {
         const string Scene3DPath = "Assets/_Project/Scenes/Main3D.unity";
+        const string TitleScenePath = "Assets/_Project/Scenes/Title.unity";   // M8：构建入口的 index 0
         const string ProfilePath = "Assets/_Project/Settings/VolumeProfile-Dreamcore.asset";
         const string FontPath = "Assets/_Project/Fonts/simhei.ttf";
         const string CorridorFbxPath = "Assets/Content/3D/Corridor.fbx";
@@ -49,15 +50,21 @@ namespace Dreamcore.EditorTools
         public static void Run()
         {
             CreateScene();
+            CreateTitleScene();
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
-            Debug.Log("[Bootstrap3D] 完成：Main3D.unity 已生成。用 Activate3D 切换构建入口。");
+            Debug.Log("[Bootstrap3D] 完成：Main3D.unity 与 Title.unity 已生成。用 Activate3D 切换构建入口。");
         }
 
         public static void Activate3D()
         {
-            EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(Scene3DPath, true) };
-            Debug.Log("[Bootstrap3D] 构建入口已切到 3D（Main3D）。");
+            // 顺序即启动场景：Title 必须在 index 0，否则双击 exe 直接掉进走廊，标题页等于没做。
+            EditorBuildSettings.scenes = new[]
+            {
+                new EditorBuildSettingsScene(TitleScenePath, true),
+                new EditorBuildSettingsScene(Scene3DPath, true),
+            };
+            Debug.Log("[Bootstrap3D] 构建入口已切到 [Title, Main3D]（Title 为启动场景）。");
         }
 
         // ---------- 场景 ----------
@@ -167,6 +174,108 @@ namespace Dreamcore.EditorTools
             new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
 
             EditorSceneManager.SaveScene(scene, Scene3DPath);
+        }
+
+        /// <summary>
+        /// M8 标题页。独立场景而不是往 Main3D 上盖一层面板：玩家双击 exe 的第一眼应该是"这是什么"，
+        /// 不是已经掉进走廊里。Canvas 仍走 ScreenSpaceCamera + 同一份 VolumeProfile——
+        /// Overlay 的 UI 不进后处理链（spec §8 第 4 项实测），那样标题页会没有颗粒和暗角，
+        /// 和走廊像两个产品的画风。
+        /// </summary>
+        static void CreateTitleScene()
+        {
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            RenderSettings.ambientLight = new Color(0.10f, 0.09f, 0.08f);
+
+            var camGo = new GameObject("Title Camera");
+            camGo.tag = "MainCamera";
+            camGo.transform.localPosition = new Vector3(0f, 0f, -10f);
+            var cam = camGo.AddComponent<Camera>();
+            camGo.AddComponent<AudioListener>();
+            cam.nearClipPlane = 0.1f;
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.045f, 0.045f, 0.055f);   // 走廊同款夜色，不做第二套颜色
+            var camData = cam.GetUniversalAdditionalCameraData();
+            camData.renderPostProcessing = true;
+            camData.volumeLayerMask = ~0;
+
+            var volGo = new GameObject("GlobalVolume");
+            var vol = volGo.AddComponent<Volume>();
+            vol.isGlobal = true;
+            vol.sharedProfile = EnsureDreamcoreProfile();
+            if (vol.sharedProfile == null)
+                Debug.LogError("[Bootstrap3D] 没有 VolumeProfile 资产 " + ProfilePath + "，标题页会没有梦核滤镜。");
+
+            var canvasGo = new GameObject("TitleUI", typeof(Canvas), typeof(CanvasScaler),
+                                         typeof(GraphicRaycaster), typeof(TitleScreen));
+            var canvas = canvasGo.GetComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceCamera;
+            canvas.worldCamera = cam;
+            canvas.planeDistance = 0.4f;
+            var scaler = canvasGo.GetComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920, 1080);
+            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+            scaler.matchWidthOrHeight = 0.5f;
+
+            Font font = AssetDatabase.LoadAssetAtPath<Font>(FontPath);
+            var warm = new Color(0.88f, 0.86f, 0.78f);
+
+            var title = MakeText("TitleText", canvasGo.transform, font, 132, new Vector2(0f, 250f), TextAnchor.MiddleCenter);
+            title.text = "昨日的明天";
+            title.color = new Color(0.95f, 0.92f, 0.82f);
+            // 先操作后规则（用户裁定）：第一行给按键，5 秒内能上手；第二行才给氛围与玩法。
+            var keys = MakeText("KeysText", canvasGo.transform, font, 40, new Vector2(0f, 70f), TextAnchor.MiddleCenter);
+            keys.text = "WASD 移动　　鼠标 转向　　Esc 退出";
+            keys.color = warm;
+            var rule = MakeText("RuleText", canvasGo.transform, font, 46, new Vector2(0f, -30f), TextAnchor.MiddleCenter);
+            rule.text = "深夜的老居民楼，一层层往下走。\n觉得哪里不对劲，就回头。";
+            rule.color = new Color(0.72f, 0.72f, 0.70f);
+
+            var start = MakeButton("StartButton", canvasGo.transform, font, "开 始", new Vector2(-190f, -230f));
+            var quit = MakeButton("QuitButton", canvasGo.transform, font, "退 出", new Vector2(190f, -230f));
+
+            var ts = canvasGo.GetComponent<TitleScreen>();
+            ts.startButton = start;
+            ts.quitButton = quit;
+            ts.gameSceneName = "Main3D";
+            // 只连引用、不在这里 AddListener：onClick 的运行期监听不进序列化（存盘只留 m_PersistentCalls，
+            // 那是 Inspector 里加的），装配期挂的监听存完就没了＝按钮点了没反应。监听由 TitleScreen.Start 自己挂。
+
+            new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
+
+            EditorSceneManager.SaveScene(scene, TitleScenePath);
+        }
+
+        /// <summary>标题页按钮：Image 底 + 子 Text + Button，ColorBlock 给高亮/按压色（没反馈的按钮像死了）。</summary>
+        static Button MakeButton(string name, Transform parent, Font font, string label, Vector2 anchoredPos)
+        {
+            var go = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Button));
+            go.transform.SetParent(parent, false);
+            var rt = go.GetComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0.5f, 0.5f);
+            rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = anchoredPos;
+            rt.sizeDelta = new Vector2(320f, 84f);
+            go.GetComponent<Image>().color = new Color(0.13f, 0.13f, 0.16f, 0.92f);
+            var btn = go.GetComponent<Button>();
+            var cb = btn.colors;
+            cb.normalColor = new Color(1f, 1f, 1f, 1f);
+            cb.highlightedColor = new Color(1.35f, 1.30f, 1.15f, 1f);
+            cb.pressedColor = new Color(0.80f, 0.78f, 0.72f, 1f);
+            cb.selectedColor = cb.highlightedColor;
+            btn.colors = cb;
+
+            var t = MakeText("Label", go.transform, font, 44, Vector2.zero, TextAnchor.MiddleCenter);
+            t.text = label;
+            t.color = new Color(0.90f, 0.88f, 0.80f);
+            var lrt = t.rectTransform;
+            lrt.anchorMin = Vector2.zero;
+            lrt.anchorMax = Vector2.one;
+            lrt.offsetMin = Vector2.zero;
+            lrt.offsetMax = Vector2.zero;
+            return btn;
         }
 
         // ---------- FBX 收养 ----------
@@ -380,6 +489,19 @@ namespace Dreamcore.EditorTools
             hud.depthText = depth;
             hud.mistakesText = mistakes;
             hud.endText = end;
+
+            // M8 开局引导条：标题页那两行是给"还没开始的人"看的，这一条是给"已经开始但没读标题"的人看的，
+            // 8 秒后淡掉就不再打扰。CanvasGroup 挂在同一个 GO 上——淡出用 alpha，不用第三方补间。
+            var hint = MakeText("HintText", canvasGo.transform, font, 36, new Vector2(0f, -420f), TextAnchor.MiddleCenter);
+            hint.text = "WASD 移动　　鼠标 转向　　Esc 退出\n觉得哪里不对劲，就回头";
+            hint.color = new Color(0.80f, 0.79f, 0.74f);
+            var hintGroup = canvasGo.GetComponent<CanvasGroup>();
+            if (hintGroup == null) hintGroup = hint.gameObject.AddComponent<CanvasGroup>();
+            hintGroup.alpha = 1f;
+            hintGroup.interactable = false;
+            hintGroup.blocksRaycasts = false;
+            hud.hintText = hint;
+            hud.hintGroup = hintGroup;
         }
 
         // ---------- helpers ----------

@@ -694,6 +694,10 @@ namespace Dreamcore.EditorTools
         /// ⑧ Floor 按世界尺寸做 world-scale tiling
         /// ⑨ 异常件按语义给材质（窗外变黑/应急灯自亮/渗水高光泽）⑩ HUD 走 ScreenSpaceCamera
         /// 且 worldCamera 指主相机、planeDistance>nearClip。
+        /// M8 再加五道标题/引导门：开局引导条在位且 alpha=1、构建场景表 [Title, Main3D]（Title 不在
+        /// index 0 就不是启动场景）、TitleScreen 两个按钮引用已连（只查引用——AddListener 不进序列化）、
+        /// Title 自己的 Canvas 走 ScreenSpaceCamera、标题页 5 条非空文字。
+        /// 注意编号撞车：上面 ①–⑩ 属 M2/M3 段，M7/M8 块内注释里的 ⑥–⑪ 是另一套，逐条清单以坏样本横幅为准。
         /// 这五条各抓一个"能编译、验收全绿、但游戏不能玩"的坑：没收养灯=全黑走廊、
         /// 没补碰撞体=穿墙走、没涂材质=刺眼导入白。
         /// 形态沿用本文件真实惯例：入口自持局部 failures + 复用既有 Assert(failures,ok,what) 三参断言 +
@@ -709,12 +713,13 @@ namespace Dreamcore.EditorTools
             // 坏样本注入的期望一律在 FAIL 行里自标"坏样本"，否则红跑日志读起来像门本身坏了
             const string BadTag = "（坏样本注入的假期望）";
             if (BadSample)
-                Debug.Log("[VERIFY] ---- 坏样本注入（仅 VERIFY_BAD=1）---- 装配段 27 条彼此独立的坏期望："
+                Debug.Log("[VERIFY] ---- 坏样本注入（仅 VERIFY_BAD=1）---- 装配段 31 项彼此独立的坏期望"
+                          + "（实测红行 36 行：灯距一项喂出 6 行，末行是 brief 自带的不可能断言）："
                           + "MeshRenderer 95→99 / base·anom 二分 86+9→99 / Light 组件 6→99 / "
                           + "base 缺碰撞体 0→1 / base 材质为 null 0→1 / "
                           + "聚合 min.z 容差 [-0.3,0.3]→[23,24] / extraFigure 的 ShadeFigure 期望翻成'不存在' / "
                           + "灯与灯管中心距离容差 0.4m→0m / 异常表条数 10→999 / "
-                          + "未登记 base 名允许数 0→1 / Tex 桶材质数 75→99 / 桶型不符允许数 0→1 / "
+                          + "未登记 base 名允许数 0→1 / 桶型不符允许数 0→1 / "
                           + "契约网格缺席允许数 0→1 / base 缺 _BaseMap 0→1 / base 未开 _NORMALMAP 0→1 / "
                           + "Floor tiling 容差 [10,100]→[99,100] / HUD 渲染模式期望翻成 Overlay / "
                           + "相机 renderPostProcessing 期望翻成'关着才对' / "
@@ -723,7 +728,10 @@ namespace Dreamcore.EditorTools
                           + "胶囊 center.y 期望从 height/2 翻成 0（＝飘在走廊的那个旧装配）/ "
                           + "相机世界 y 容差 [1.6,1.8]→[2.6,2.8] / 腿脚件数 4→99 / "
                           + "身体件出现在走廊树里允许数 0→1 / leftLeg·rightLeg 绑定期望翻成'未赋值' / "
-                          + "鞋在眼睛正前方的水平距离容差 [0.25,+∞)→(-∞,0.10]；"
+                          + "鞋在眼睛正前方的水平距离容差 [0.25,+∞)→(-∞,0.10] / "
+                          + "开局引导条期望翻成'根本没有' / 构建场景表期望'只 1 条且 [0]=Main3D'（＝M8 之前）/ "
+                          + "TitleScreen 的按钮期望翻成'未绑定' / Title 的 Canvas 期望 Overlay / "
+                          + "标题页非空文字数 5→0；"
                           + "默认路径绝不用这些假期望");
             UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
                 "Assets/_Project/Scenes/Main3D.unity",
@@ -785,7 +793,7 @@ namespace Dreamcore.EditorTools
             // 期望值全部从本文件顶部的 M6 契约名单派生（不再抄 logs 里的魔数）；
             // 尺寸门一律走 Renderer.bounds，因为只有世界量是米（spec §9.2），
             // 不读 Transform/Mesh.bounds/BoxCollider.size。
-            // 坏样本注入的条目见本方法开头的汇总行（装配段 27 条，①MeshRenderer 95→99 ②灯数 6→99
+            // 坏样本注入的条目见本方法开头的汇总行（装配段 32 条，①MeshRenderer 95→99 ②灯数 6→99
             // ③base 缺碰撞体 0→1 ④base 材质为 null 0→1 ⑤聚合 min.z 容差 [-0.3,0.3]→[23,24]
             // ⑥extraFigure 的 ShadeFigure 期望翻成"不存在" ⑦灯与灯管距离 0.4m→0m …… M7 再加五条见 §M7）。
             // 默认路径一条都不放宽。
@@ -1226,6 +1234,73 @@ namespace Dreamcore.EditorTools
                       + " decision=" + (loop.decisionClip == null ? "缺" : loop.decisionClip.name)
                       + " 环境音路数=" + ambientLoops);
 
+            // ---------- M8 标题页与开局引导（用户裁定"最后做一下引导和主界面"）----------
+            // 五道门，坏跑各翻反向期望且两侧都有差分：
+            // ⑦ HUD 第 4 条 hintText 在且开局 alpha=1；坏跑期望"根本没有引导条"（＝M8 之前的状态）；
+            // ⑧ 构建场景表两条且 [0]=Title；坏跑期望"只有 1 条、[0]=Main3D"（也正是改之前的样子）——
+            //    这条不验的话，标题页做没做、放在第几位，构建产物照样能跑，只有双击那一刻才知道坏了；
+            // ⑨ Title.unity 里 TitleScreen 在、两个按钮引用已连、gameSceneName 指回 Main3D；
+            //    坏跑期望"按钮未绑定"。**只查引用不查 onClick 监听**：AddListener 不进序列化，
+            //    查 m_PersistentCalls 会把正确的装配判红（本项目踩过同族的"量具坏"）。
+            // ⑩ Title 的 Canvas 是 ScreenSpaceCamera；坏跑翻成 Overlay（Overlay 的 UI 不吃梦核滤镜）。
+            // ⑪ 标题页非空文字 5 条（标题/按键/规则/两个按钮的 Label）；坏跑翻成 0——
+            //    前四道门全绿也可能做出一张空白页，这条量的是"页面上真有字"。
+            var hud = UnityEngine.Object.FindFirstObjectByType<Dreamcore.D3.Hud3D>();
+            Assert(failures, (hud != null && hud.hintText != null && hud.hintGroup != null
+                              && hud.hintGroup.alpha > 0.99f && hud.holdSeconds > 0f) != BadSample,
+                   "HUD 应有开局引导条（hintText + alpha=1 的 CanvasGroup + holdSeconds>0）"
+                   + (BadSample ? BadTag : "") + "，实际 "
+                   + (hud == null ? "无 Hud3D" : (hud.hintText == null ? "无 hintText"
+                       : (hud.hintGroup == null ? "无 CanvasGroup"
+                           : "alpha=" + hud.hintGroup.alpha.ToString("F2")
+                             + " hold=" + hud.holdSeconds.ToString("F1") + "s"))));
+
+            var buildScenes = EditorBuildSettings.scenes;
+            string firstPath = buildScenes.Length > 0 ? buildScenes[0].path.Replace('\\', '/') : "(空)";
+            Assert(failures,
+                       buildScenes.Length == (BadSample ? 1 : 2)
+                    && firstPath == (BadSample ? "Assets/_Project/Scenes/Main3D.unity"
+                                               : "Assets/_Project/Scenes/Title.unity"),
+                   "构建场景表应为 [Title, Main3D]（Title 在 index 0 才是启动场景）" + (BadSample ? BadTag : "")
+                   + "，实际 " + buildScenes.Length + " 条，[0]=" + firstPath);
+
+            // Title 场景最后开：它自带一台 MainCamera 标签的相机，additive 之后 Camera.main 会漂，
+            // 所以必须在 Main3D 的全部断言（含眼睛高度那条）跑完之后才动场景。
+            var titleScene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
+                "Assets/_Project/Scenes/Title.unity",
+                UnityEditor.SceneManagement.OpenSceneMode.Additive);
+            var ts = UnityEngine.Object.FindFirstObjectByType<Dreamcore.D3.TitleScreen>();
+            Assert(failures,
+                       (ts != null && ts.startButton != null && ts.quitButton != null
+                        && ts.gameSceneName == "Main3D") != BadSample,
+                   "Title.unity 里应有 TitleScreen 且 startButton/quitButton 已连、gameSceneName=Main3D"
+                   + (BadSample ? BadTag : "") + "，实际 "
+                   + (ts == null ? "无 TitleScreen"
+                       : "start=" + (ts.startButton == null ? "null" : ts.startButton.name)
+                         + " quit=" + (ts.quitButton == null ? "null" : ts.quitButton.name)
+                         + " scene=" + ts.gameSceneName));
+            // 只能问 TitleScreen 自己挂的那张 Canvas：Main3D 的 HUD Canvas 此刻仍在树里（additive），
+            // FindFirstObjectByType<Canvas>() 会先捞到它，那条断言就变成"HUD 是 ScreenSpaceCamera"的复读。
+            var titleCanvas = ts == null ? null : ts.GetComponent<Canvas>();
+            Assert(failures, titleCanvas != null
+                       && (titleCanvas.renderMode == RenderMode.ScreenSpaceCamera) != BadSample,
+                   "Title 的 Canvas 应为 ScreenSpaceCamera（Overlay 吃不到梦核滤镜，标题页会和走廊两个画风）"
+                   + (BadSample ? BadTag : "") + "，实际 "
+                   + (titleCanvas == null ? "无 Canvas" : titleCanvas.renderMode.ToString()));
+            var titleTexts = titleCanvas == null ? new UnityEngine.UI.Text[0]
+                : titleCanvas.GetComponentsInChildren<UnityEngine.UI.Text>(true);
+            int nonEmpty = 0;
+            foreach (var t in titleTexts) if (!string.IsNullOrEmpty(t.text)) nonEmpty++;
+            Assert(failures, nonEmpty == (BadSample ? 0 : 5),
+                   "标题页应有 5 条非空文字（标题/按键/规则/两个按钮），实际 " + nonEmpty + (BadSample ? BadTag : ""));
+            Debug.Log("[VERIFY] 标题与引导: hintText=" + (hud != null && hud.hintText != null ? "有" : "无")
+                      + " hold=" + (hud == null ? 0f : hud.holdSeconds).ToString("F1") + "s"
+                      + " ; 场景表 " + buildScenes.Length + " 条 [0]=" + firstPath
+                      + " ; TitleScreen=" + (ts == null ? "缺" : "在")
+                      + " 按钮=" + (ts != null && ts.startButton != null && ts.quitButton != null ? "已连" : "缺")
+                      + " ; 文字 " + nonEmpty + " 条");
+            UnityEditor.SceneManagement.EditorSceneManager.CloseScene(titleScene, true);
+
             // 坏样本：VERIFY_BAD=1 时把 10 条翻成 999，独立成一行 FAIL（默认路径绝不执行）。
             if (BadSample)
                 Assert(failures, loop.anomalies.Count == 999, "坏样本：这条断言必须失败");
@@ -1243,7 +1318,9 @@ namespace Dreamcore.EditorTools
                           + " + 身高胶囊 center=半高与眼睛世界高度 + " + BodyPartNames.Length + " 件腿脚挂在 Player 下且不在走廊树里"
                           + " + 鞋在眼前方有水平余量（低头看得见鞋而不是大腿截面）"
                           + " + HUD ScreenSpaceCamera + 梦核滤镜 5 道 override 与相机后处理开关"
-                          + " + 音效三路接线与一路循环环境音）");
+                          + " + 音效三路接线与一路循环环境音"
+                          + " + 开局引导条在位（alpha=1）+ 构建场景表 [Title, Main3D]"
+                          + " + TitleScreen 按钮已连且 Title 页 5 条文字）");
             else
             {
                 foreach (var f in failures)
