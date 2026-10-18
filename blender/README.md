@@ -117,7 +117,7 @@ cd /g/AIgame/jam && VERIFY_BAD=1 ./tools/blender_build.sh  # 同一道门喂坏�
 
 退出码 **0 = 三个条件同时成立**：FBX 落盘 + Blender 日志无 `Error:` + `[VERIFY]` 结论符合期望
 （默认 PASS，`VERIFY_BAD=1` 翻成 FAIL）。任一不满足退 1 并打 `!!` 开头的因由。
-产物与日志：`dreamcore/Assets/Content/3D/Corridor.fbx`、`blender/Corridor.blend`、
+产物与日志：`dreamcore/Assets/Content/3D/Corridor.fbx` 与 `Body.fbx`（两只，见 §6）、`blender/Corridor.blend`、
 `logs/blender-build.log`、`logs/verify-fbx.log` / `logs/verify-fbx-bad.log`。
 
 - 门只认 `[VERIFY] PASS|FAIL` 行；Unity 若在开日志前中止（许可证/工程锁），`rm -f` + `touch` marker +
@@ -125,7 +125,7 @@ cd /g/AIgame/jam && VERIFY_BAD=1 ./tools/blender_build.sh  # 同一道门喂坏�
 - `--python-exit-code 4` 必须放在 `--python` **之左（之前）**：放后面在 Blender 5.2.2 上会被忽略，
   Python 抛异常照样退 0，那道 `||` 门就是装饰。
 - 环境变量覆写：`BLENDER_EXE`（Blender 可执行文件）、`CORRIDOR_BLEND`、`CORRIDOR_FBX_OUT`、
-  `PH_PROPS_DIR`（道具几何暂存目录，见 §5）。
+  `BODY_FBX_OUT`（腿脚那只，见 §6）、`PH_PROPS_DIR`（道具几何暂存目录，见 §5）。
 - `Error: Not found: bpy.ops.export_scene.fbx` = 导出插件没启用；`objects` 数量对不上照
   `[BUILD] base_children` 逐项查。
 - 验收口在 `dreamcore/Assets/_Project/Editor/Verify3D.cs::VerifyFbx()`（`-logFile` 读 `[VERIFY]`）。
@@ -159,3 +159,25 @@ cd /g/AIgame/jam && VERIFY_BAD=1 ./tools/blender_build.sh  # 同一道门喂坏�
 - **道具用自己的 UV，不参与 world-scale tiling**：`Bootstrap3D.AddProp` 一律传 `tileMeters = 0f`，
   按米裁会把说明标签/表盘撕成两半。门在 `Verify3D` 装配段："15 件杂物的 `_BaseMap` tiling 应保持 (1,1)"。
 
+
+## 6. 腿脚段（`gen_body.py`）：第二只 FBX，挂 Player 不挂走廊
+
+M7 起因：用户裁定"第一人称＋可见腿脚"（`logs/shots7` 里眼睛离地 2.70m＝飘在走廊）。身体件**绝不进
+`Corridor.fbx`** —— 那只文件的按名契约（§1）是走廊的，多四件 `Leg_*`/`Shoe_*` 会被 Unity 侧
+"未登记 base 名"判红。所以 `build_scene.py` 导出走廊后 `wm.read_factory_settings(use_empty=True)`
+清场，再建身体、导出 `dreamcore/Assets/Content/3D/Body.fbx`；两只文件共用同一个 `export_fbx(path)`，
+导出参数不可能各改一半。
+
+- **枢轴在髋/踝，不在脚底**：运行期摆腿是 `Quaternion.AngleAxis(角, 轴) * 基准` —— **绕自身原点**转。
+  原点落在脚底的话，12° 的摆幅会像圆规一样从地面扫出去（脚不动、膝盖插进地里）。髋在
+  `HIP_Z=0.95`、踝在 `ANKLE_Z=0.09`，鞋的原点=踝（鞋绕踝转才像迈步）。
+- **自检读 `matrix_world.translation`，别读 `ob.location`**：`location` 是 `matrix_basis`，一旦
+  `ob.parent = ...` + `matrix_parent_inverse` 就位，它就不再是世界位置。第一版拿 `location` 断言枢轴，
+  四件全红。
+- **轴映射**：Blender `+X`＝前 → Unity `+Z`（鞋尖朝前）；Blender `+Y`＝横向 → Unity `−X`
+  （`Leg_L` 在 `+y=0.14`，装配后世界 `x=[-0.26,-0.02]`，左右是反的，别按 Unity 的 `+x` 找左腿）。
+- **鞋必须是不对称的**：`hi.x < 0.15` 直接抛错（"鞋退化成对称方块"）。这条是用户那句"那两个方块太抽象了"
+  留在工装里的哨兵——鞋尖超出踝 0.205m、鞋跟退 0.095m，俯视才读得出是鞋。
+- 门：`tools/blender_build.sh` 三条 `[BUILD]` 读数（`body_parts=4` / `body_names=[...]` / `Body.fbx` 落盘）；
+  Unity 侧 `Verify3D.VerifyAssembly` 的 M7 六道门（件数、不在走廊树、`leftLeg/rightLeg` 绑定、
+  胶囊 `center=半高`、眼睛世界高度、**鞋在眼前方有水平余量**）。

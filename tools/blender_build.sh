@@ -12,6 +12,7 @@ BLENDER="${BLENDER_EXE:-/d/Game Library/Steam/steamapps/common/Blender/blender.e
 UNITY="/e/Unity/Unity/Editor/Editor/Unity.exe"
 PROJ="$JAM_ROOT/dreamcore"
 FBX="$PROJ/Assets/Content/3D/Corridor.fbx"
+BODY_FBX="$PROJ/Assets/Content/3D/Body.fbx"
 BLOG="$JAM_ROOT/logs/blender-build.log"
 VLOG="$JAM_ROOT/logs/verify-fbx.log"
 mkdir -p "$JAM_ROOT/logs"
@@ -31,7 +32,14 @@ grep -q '\[BUILD\] wire_check=ok' "$BLOG" \
   || { echo "!! wire 契约自检没过（名字不是前缀式语法），见 $BLOG"; exit 1; }
 grep -q "^\[BUILD\] anom_ids=.*'10'" "$BLOG" \
   || { echo "!! 10 组异常没造全，见 $BLOG"; exit 1; }
+# 腿脚段（M7）：四件、名字齐、Body.fbx 落盘。身体件走的是另一棵树，
+# Unity 侧的门管不到"Blender 有没有把它造出来"，所以这里就得判红。
+grep -q '^\[BUILD\] body_parts=4 ' "$BLOG" \
+  || { echo "!! Body.fbx 不是四件腿脚（或 build_scene 没跑第二段），见 $BLOG"; exit 1; }
+grep -q "\[BUILD\] body_names=\['Leg_L', 'Leg_R', 'Shoe_L', 'Shoe_R'\]" "$BLOG" \
+  || { echo "!! 腿脚名字不齐或多了别的东西，见 $BLOG 的 body_names 行"; exit 1; }
 [ -f "$FBX" ] || { echo "!! 缺产物：$FBX"; exit 1; }
+[ -f "$BODY_FBX" ] || { echo "!! 缺产物：$BODY_FBX"; exit 1; }
 # 日志干净门：Blender 侧任何 Error:（含 "Error: Not found: bpy.ops.export_scene.fbx"
 # = 导出插件未启用）都判红，不能只靠退出码 —— 退出码管不到非致命报错。
 grep -E 'Error:' "$BLOG" > "$JAM_ROOT/logs/.blender-build-errors.txt" \

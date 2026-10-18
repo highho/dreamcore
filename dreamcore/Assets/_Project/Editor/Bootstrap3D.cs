@@ -31,6 +31,7 @@ namespace Dreamcore.EditorTools
         const string ProfilePath = "Assets/_Project/Settings/VolumeProfile-Dreamcore.asset";
         const string FontPath = "Assets/_Project/Fonts/simhei.ttf";
         const string CorridorFbxPath = "Assets/Content/3D/Corridor.fbx";
+        const string BodyFbxPath = "Assets/Content/3D/Body.fbx";   // 腿脚单独一棵，理由见 blender/gen_body.py 头部
         const string TexRoot = "Assets/Content/Textures";   // 全 CC0：墙面/地面来自 ambientCG（fetch_textures.sh），Prop_* 来自 Poly Haven（fetch_props.sh）
         const string AudioRoot = "Assets/_Project/Audio";   // ffmpeg 纯合成，由 ./tools/make_audio.sh 落盘
 
@@ -99,17 +100,28 @@ namespace Dreamcore.EditorTools
             MakeGate("GateBack", root, new Vector3(0f, 1.5f, 1.2f), false);
             MakeGate("GateForward", root, new Vector3(0f, 1.5f, CorridorLength - 1.2f), true);
 
-            // Player：根(CharacterController) + 子相机
+            // Player：根＝脚底(CharacterController) + 子相机 + 同级腿脚
             var player = new GameObject("Player");
             player.tag = "Player";
-            player.transform.position = new Vector3(0f, 0.1f, 1.8f);
-            player.AddComponent<CharacterController>(); // 场景内序列化：装配段要能读到，运行期 FPC.Awake 会 GetComponent 复用
+            player.transform.position = new Vector3(0f, 0.1f, 1.8f);   // 0.1＝楼板顶 FLOOR_TOP，根就是脚底，不用再加半个身高
+            var cc = player.AddComponent<CharacterController>(); // 场景内序列化：装配段要能读到，运行期 FPC.Awake 会 GetComponent 复用
+            // center 抬到半高是让"根＝脚底"的关键。默认序列化值是 height 2 / center 0，
+            // 那时根落在身体中点、相机再叠 1.6 ⇒ 眼睛离地 2.70m（logs/shots7 里"飘在走廊"的根因，
+            // 天花板才 3.10m）。半径 0.5 不动：HUD 的 planeDistance=0.4 是按它推出来的（见 CreateHud）。
+            cc.height = 1.8f;
+            cc.radius = 0.5f;
+            cc.center = new Vector3(0f, cc.height * 0.5f, 0f);
             var fpc = player.AddComponent<FirstPersonController>();
             fpc.footstepClip = LoadClip("footstep.wav");
             var camGo = new GameObject("Main Camera");
             camGo.tag = "MainCamera";
             camGo.transform.SetParent(player.transform, false);
-            camGo.transform.localPosition = new Vector3(0f, 1.6f, 0f);
+            // y 1.65+0.1＝眼睛离地 1.75m（成年人视高）。z 退到 -0.30：腿柱原本正长在眼睛底下，
+            // 低头到 pitchLimit 时视线先撞到大腿截面（0.7m 外、半径 0.115 ⇒ 垂角张角 ±9°），
+            // 鞋被整条腿挡死，logs/shots9 的 08 帧里两条腿读起来就是"两个圆饼"。
+            // 眼睛往后挪 0.3m 后，大腿垂角从 90° 降到 ~68°，鞋落到 ~77°，低头时两者错开、
+            // 腿有前后层次。-0.30 仍在半径 0.5 的胶囊内，不会让相机穿到碰撞体外。
+            camGo.transform.localPosition = new Vector3(0f, 1.65f, -0.30f);
             var cam = camGo.AddComponent<Camera>();
             camGo.AddComponent<AudioListener>();
             cam.nearClipPlane = 0.1f;
@@ -119,6 +131,7 @@ namespace Dreamcore.EditorTools
             camData.renderPostProcessing = true;
             camData.volumeLayerMask = ~0;
             fpc.cameraTransform = camGo.transform;
+            AssembleBody(player.transform, mats, fpc);
 
             // 全局 Volume。注意：VolumeProfile-Dreamcore.asset 出厂时 components 是空的，
             // "复用了 2D 版滤镜"这个说法在资产层面并不成立——滤镜得在这里真填进去。
@@ -279,6 +292,49 @@ namespace Dreamcore.EditorTools
             if (fig.GetComponent<ShadeFigure>() == null) fig.gameObject.AddComponent<ShadeFigure>();
         }
 
+        /// <summary>
+        /// 腿脚段（M7）：Body.fbx 的四件挂到 Player 根下，与相机**同级**。
+        /// 不能挂相机下面——那样低头时腿跟着脸转，看起来像腿长在下巴上。
+        /// 鞋在 FBX 里已经是腿的子节点（gen_body._shoe 里 parent 过），运行期只驱动两条腿、鞋跟着走，
+        /// 这里不做任何拆装，原样收养层级。
+        /// 材质按名分派单独一个函数，不进 SurfFor 那张规则表：那张表管的是"走廊构件长什么样"，
+        /// 混进 StartsWith("Leg") 等于让建筑表兼管解剖；而身体件根本不在 Corridor(Clone) 树里，
+        /// PaintShell 走不到它们。
+        /// 补碰撞体一律不做：根上已有 CharacterController，给腿加 Collider 只会让玩家把自己推开。
+        /// </summary>
+        static void AssembleBody(Transform playerRoot, Mats mats, FirstPersonController fpc)
+        {
+            var asset = AssetDatabase.LoadAssetAtPath<GameObject>(BodyFbxPath);
+            if (asset == null)
+            {
+                Debug.LogError("[Bootstrap3D] 缺 " + BodyFbxPath + "，先跑 ./tools/blender_build.sh（没腿脚＝还在飘）");
+                return;
+            }
+            var inst = Object.Instantiate(asset);
+            inst.name = "Body";
+            inst.transform.SetParent(playerRoot, false);
+            inst.transform.localPosition = Vector3.zero;
+            inst.transform.localRotation = Quaternion.Euler(0f, FbxYaw, 0f); // 与走廊同一处轴向补偿：Blender +X（脚尖）→ Unity +Z（forward）
+
+            foreach (var mr in inst.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                var s = BodySurf(mr.name, mats);
+                if (s == null) { Debug.LogError("[Bootstrap3D] 未登记的身体件名：" + mr.name); continue; }
+                mr.sharedMaterial = s.Mat;
+            }
+            fpc.leftLeg = FindDeep(inst.transform, "Leg_L");
+            fpc.rightLeg = FindDeep(inst.transform, "Leg_R");
+            if (fpc.leftLeg == null || fpc.rightLeg == null)
+                Debug.LogError("[Bootstrap3D] Body.fbx 里找不到 Leg_L/Leg_R，腿不会跟着迈步摆。");
+        }
+
+        static Surf BodySurf(string n, Mats m)
+        {
+            if (n.StartsWith("Leg")) return m.trousers;
+            if (n.StartsWith("Shoe")) return m.shoes;
+            return null;
+        }
+
         static Transform FindDeep(Transform t, string name)
         {
             if (t.name == name) return t;
@@ -340,6 +396,7 @@ namespace Dreamcore.EditorTools
         {
             public Surf floor, wall, wainscot, ceiling, wood, water, darkCloth, window, black, green, red;
             public Surf metal, paintedGreen, paintedWhite, paper, glass, lampGlow;
+            public Surf trousers, shoes;                  // 腿脚段（M7）：身体件不吃贴图，纯色两层
             /// <summary>杂物段：键＝Prop_ 前缀后的 slug（实例名 Prop_&lt;slug&gt;__&lt;n&gt; 切掉后缀即得）。</summary>
             public Dictionary<string, Surf> props;
         }
@@ -381,6 +438,11 @@ namespace Dreamcore.EditorTools
             m.green = new Surf(Unlit("EmergencyGreen", new Color(0.10f, 0.80f, 0.32f)), 0f);          // 应急灯/安全出口牌
             m.red = new Surf(Unlit("WireRed", new Color(0.78f, 0.10f, 0.08f)), 0f);                   // 红电线
             m.glass = Glass("GlassClear", new Color(0.72f, 0.80f, 0.86f, 0.30f));                     // 唯一透明件
+            // 腿脚段（M7）：深靛蓝哑光裤腿 + 稍亮的皮鞋。带一点自发光不是因为风格，是因为照度——
+            // 走廊只有六盏 2.75m 的点光，脚下 0.5m 处几乎没光，纯 Lit 的腿在实机帧里和地板同化成一片黑。
+            // "腿很暗"是梦核，"看不见腿"是 bug。
+            m.trousers = Solid("Trousers", new Color(0.13f, 0.14f, 0.19f), 0.22f, 0.06f);
+            m.shoes = Solid("Shoes", new Color(0.20f, 0.16f, 0.13f), 0.55f, 0.05f);
             // 杂物段（M6 T2）：Poly Haven 的 CC0 道具，每件吃自己的 BaseColor/Normal
             // （tools/fetch_props.sh 落 Content/Textures/Prop_<slug>/）。
             // tileMeters 一律 0 ⇒ 不参与 world-scale：道具的 UV 是作者按整件铺满的，
@@ -549,6 +611,25 @@ namespace Dreamcore.EditorTools
             m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
             m.SetColor("_BaseColor", tintWithAlpha);
             return new Surf(m, 0f);     // Tile<=0：不参与 world-scale（玻璃不铺贴图）
+        }
+
+        /// <summary>
+        /// 纯色 Lit（身体件用：不吃贴图，也就不会触发"缺贴图"那条 LogError）。
+        /// emission 是乘在基色上的自发光系数。**_EMISSION 关键词必须手动开**：
+        /// 只 SetColor("_EmissionColor") 的话 URP Lit 根本不采样发光，资产、日志、画面三者里只有
+        /// 最后一样不对——和 _NORMALMAP 是同一类坑（见 Pbr 的注释）。
+        /// </summary>
+        static Surf Solid(string name, Color c, float smoothness, float emission)
+        {
+            var m = new Material(Shader.Find("Universal Render Pipeline/Lit")) { name = name };
+            m.SetColor("_BaseColor", c);
+            m.SetFloat("_Smoothness", smoothness);
+            if (emission > 0f)
+            {
+                m.EnableKeyword("_EMISSION");
+                m.SetColor("_EmissionColor", c * emission);
+            }
+            return new Surf(m, 0f);     // Tile<=0：不参与 world-scale
         }
 
         static Material Unlit(string name, Color c)

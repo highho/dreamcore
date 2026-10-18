@@ -21,7 +21,7 @@ public static class Win32Shot {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern void keybd_event(byte k, byte s, uint f, UIntPtr e);
-  [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint dx, uint dy, uint d, UIntPtr e);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint f, int dx, int dy, uint d, UIntPtr e);
 }
 "@
 
@@ -51,8 +51,12 @@ function Hold-Key([byte]$vk, [int]$ms) {
   Start-Sleep -Milliseconds 250
 }
 
-function Move-Mouse([int]$dx) {
-  [Win32Shot]::mouse_event(1, [uint32]$dx, 0, 0, [UIntPtr]::Zero)   # MOUSEEVENTF_MOVE
+# Hold a key across several screenshots (Hold-Key releases too early for a frame burst).
+function Key-Down([byte]$vk) { [Win32Shot]::keybd_event($vk, 0, 0, [UIntPtr]::Zero) }
+function Key-Up([byte]$vk) { [Win32Shot]::keybd_event($vk, 0, 2, [UIntPtr]::Zero) }
+
+function Move-Mouse([int]$dx, [int]$dy = 0) {
+  [Win32Shot]::mouse_event(1, $dx, $dy, 0, [UIntPtr]::Zero)   # MOUSEEVENTF_MOVE (dx yaw, dy pitch)
   Start-Sleep -Milliseconds 500
 }
 
@@ -89,6 +93,42 @@ try {
   $h3 = Take-Shot "04_walk_again.png"
   Hold-Key 0x53 2500                      # S, back
   $h4 = Take-Shot "05_step_back.png"
+
+  # Mouse Y is a *smoothed* legacy axis (ProjectSettings sensitivity 0.1), so one small dy
+  # event barely registers: 30 px damped to ~0.1 deg/frame read as "pitch is dead" in an
+  # earlier probe while a 700 px yaw turned fine. Pitch in yaw-sized chunks instead --
+  # 3x250 px drives it into the pitchLimit clamp, which is where the feet are in frame.
+  Move-Mouse 0 250
+  [void](Take-Shot "06_look_down_a.png")
+  Move-Mouse 0 250
+  [void](Take-Shot "07_look_down_b.png")
+  Move-Mouse 0 250
+  $h5 = Take-Shot "08_look_down_max.png"
+
+  # M7 legs: burst 4 frames while W is held.
+  # At walkSpeed 1.6 and stepDistance 1.5 one footfall is ~0.94s, so frames 220ms apart
+  # land on different leg angles -- a frozen rig (or legs that don't swing at all) reads
+  # as SAME. 14 is taken after releasing W: legBlend damps to 0 in ~0.2s, so the pose
+  # must come back to the neutral one it had in 08.
+  Key-Down 0x57
+  Start-Sleep -Milliseconds 400                       # let legBlend ramp up
+  $l0 = Take-Shot "10_leg_a.png"
+  Start-Sleep -Milliseconds 220
+  $l1 = Take-Shot "11_leg_b.png"
+  Start-Sleep -Milliseconds 220
+  $l2 = Take-Shot "12_leg_c.png"
+  Start-Sleep -Milliseconds 220
+  $l3 = Take-Shot "13_leg_d.png"
+  Key-Up 0x57
+  Start-Sleep -Milliseconds 700
+  $l4 = Take-Shot "14_leg_rest.png"
+  Write-Host "== leg burst (220ms apart, walking) =="
+  # Do NOT read these hashes as proof the legs swung: FilmGrain is temporal noise and the
+  # six lamps flicker, so any two frames of this player differ even with a frozen rig.
+  # The burst is evidence for the eye -- 10..13 vs 14/06 is what settles "legs move".
+  Write-Host "hashes below are for the record only (grain+flicker make every pair differ)"
+  Write-Host "08(rest) 10 11 12 13 14(rest):"
+  Write-Host ("  " + $h5 + " " + $l0 + " " + $l1 + " " + $l2 + " " + $l3 + " " + $l4)
 
   Write-Host "== frame hashes =="
   Write-Host "01 vs 02 : $(if ($h0 -ne $h1) { 'DIFFER (camera moved)' } else { 'SAME (no movement!)' })"

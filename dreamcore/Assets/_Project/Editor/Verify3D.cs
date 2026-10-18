@@ -68,6 +68,10 @@ namespace Dreamcore.EditorTools
             "Prop_container", "Prop_crate", "Prop_sign", "Prop_bag", "Prop_extinguisher",
             "Prop_plunger", "Prop_clock", "Prop_alarm",
         };
+        // 腿脚段（M7）：Body.fbx 的四件，名字逐字来自 blender/gen_body.py 的 NAMES。
+        // 身体件是**独立一棵树**（挂 Player 下），不进上面任何一张走廊名单——
+        // 混进 BaseMeshNames 会让"Corridor(Clone) 网格逐字保真"那条门去数玩家的腿。
+        static readonly string[] BodyPartNames = { "Leg_L", "Leg_R", "Shoe_L", "Shoe_R" };
         static readonly string[] CorridorBaseNames =
         {
             // 壳体
@@ -705,7 +709,7 @@ namespace Dreamcore.EditorTools
             // 坏样本注入的期望一律在 FAIL 行里自标"坏样本"，否则红跑日志读起来像门本身坏了
             const string BadTag = "（坏样本注入的假期望）";
             if (BadSample)
-                Debug.Log("[VERIFY] ---- 坏样本注入（仅 VERIFY_BAD=1）---- 装配段 21 条彼此独立的坏期望："
+                Debug.Log("[VERIFY] ---- 坏样本注入（仅 VERIFY_BAD=1）---- 装配段 27 条彼此独立的坏期望："
                           + "MeshRenderer 95→99 / base·anom 二分 86+9→99 / Light 组件 6→99 / "
                           + "base 缺碰撞体 0→1 / base 材质为 null 0→1 / "
                           + "聚合 min.z 容差 [-0.3,0.3]→[23,24] / extraFigure 的 ShadeFigure 期望翻成'不存在' / "
@@ -715,7 +719,12 @@ namespace Dreamcore.EditorTools
                           + "Floor tiling 容差 [10,100]→[99,100] / HUD 渲染模式期望翻成 Overlay / "
                           + "相机 renderPostProcessing 期望翻成'关着才对' / "
                           + "anomalyCue 期望翻成'未赋值' / 循环环境音路数 1→2 / "
-                          + "杂物 _BaseMap tiling 期望从'保持 (1,1)'翻成'应被改写'；默认路径绝不用这些假期望");
+                          + "杂物 _BaseMap tiling 期望从'保持 (1,1)'翻成'应被改写' / "
+                          + "胶囊 center.y 期望从 height/2 翻成 0（＝飘在走廊的那个旧装配）/ "
+                          + "相机世界 y 容差 [1.6,1.8]→[2.6,2.8] / 腿脚件数 4→99 / "
+                          + "身体件出现在走廊树里允许数 0→1 / leftLeg·rightLeg 绑定期望翻成'未赋值' / "
+                          + "鞋在眼睛正前方的水平距离容差 [0.25,+∞)→(-∞,0.10]；"
+                          + "默认路径绝不用这些假期望");
             UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
                 "Assets/_Project/Scenes/Main3D.unity",
                 UnityEditor.SceneManagement.OpenSceneMode.Single);
@@ -776,9 +785,9 @@ namespace Dreamcore.EditorTools
             // 期望值全部从本文件顶部的 M6 契约名单派生（不再抄 logs 里的魔数）；
             // 尺寸门一律走 Renderer.bounds，因为只有世界量是米（spec §9.2），
             // 不读 Transform/Mesh.bounds/BoxCollider.size。
-            // 坏样本注入的条目见本方法开头的汇总行（装配段 21 条，①MeshRenderer 95→99 ②灯数 6→99
+            // 坏样本注入的条目见本方法开头的汇总行（装配段 27 条，①MeshRenderer 95→99 ②灯数 6→99
             // ③base 缺碰撞体 0→1 ④base 材质为 null 0→1 ⑤聚合 min.z 容差 [-0.3,0.3]→[23,24]
-            // ⑥extraFigure 的 ShadeFigure 期望翻成"不存在" ⑦灯与灯管距离 0.4m→0m ……）。
+            // ⑥extraFigure 的 ShadeFigure 期望翻成"不存在" ⑦灯与灯管距离 0.4m→0m …… M7 再加五条见 §M7）。
             // 默认路径一条都不放宽。
             var inst = GameObject.Find("Corridor(Clone)");
             Assert(failures, inst != null, "场景里存在 FBX 实例根 Corridor(Clone)");
@@ -1050,6 +1059,91 @@ namespace Dreamcore.EditorTools
                    "anom08 渗水应有高光泽（smoothness>=0.8）才在点光下反光，实际 "
                    + (waterMt == null ? "无材质" : waterMt.GetFloat("_Smoothness").ToString("F2")));
 
+            // ---------- M7 身高与腿脚真门（logs/shots7 逼出来的：眼睛离地 2.70m＝飘在走廊里）----------
+            // 旧装配用的是 CharacterController 的序列化默认值（height 2 / center 0），
+            // 根因此落在身体中点而不是脚底，相机再叠 1.6 ⇒ 眼睛 2.70m，天花板才 3.10m。
+            // 六道门各管一件事，坏跑里六道都翻成反向期望且**两侧都有差分**（不写恒等式）：
+            // ① 胶囊 center.y=height/2 且 height 落在人该有的区间；坏跑翻成"center 在原点才对"——
+            //    那正是坏掉的旧装配，实际 0.90 凑不到 0；
+            // ② 相机世界 y 落在 1.6–1.8（成人视高）；坏跑翻成 2.6–2.8（旧装配的实测区间）；
+            // ③ Player 子树里腿脚件数＝名单数；坏跑期望 99（实际恒为 4，物理上凑不到，不是恒等式）；
+            // ④ 身体件一件都不许出现在 Corridor(Clone) 子树里；坏跑把允许数 0→1；
+            // ⑤ FPC 的 leftLeg/rightLeg 已绑定；坏跑翻成"未赋值才对"；
+            // ⑥ 鞋在眼睛前上方的水平距离（腿不被大腿截面挡死）；坏跑翻成"应 <=0.10"。
+            var ccP = fpc != null ? fpc.GetComponent<CharacterController>() : null;
+            float wantCenter = ccP == null ? 0f : (BadSample ? 0f : ccP.height * 0.5f);
+            Assert(failures, ccP != null
+                       && ccP.height >= 1.7f && ccP.height <= 1.9f
+                       && ccP.radius >= 0.45f && ccP.radius <= 0.55f
+                       && Mathf.Abs(ccP.center.y - wantCenter) < 0.02f,
+                   "胶囊应为 height 1.8 / radius 0.5（HUD 的 planeDistance=0.4 是按半径 0.5 推的，不能缩）/ "
+                   + "center.y=" + wantCenter.ToString("F2") + "（根＝脚底）" + (BadSample ? BadTag : "")
+                   + "，实际 " + (ccP == null ? "无 CharacterController"
+                       : "height=" + ccP.height.ToString("F2") + " radius=" + ccP.radius.ToString("F2")
+                         + " center.y=" + ccP.center.y.ToString("F2")));
+
+            var camT = Camera.main != null ? Camera.main.transform : null;
+            float eyeLo = BadSample ? 2.6f : 1.6f, eyeHi = BadSample ? 2.8f : 1.8f;
+            Assert(failures, camT != null && camT.position.y >= eyeLo && camT.position.y <= eyeHi,
+                   "相机（眼睛）世界高度应落在 [" + eyeLo.ToString("F2") + ", " + eyeHi.ToString("F2")
+                   + "]m，实际 " + (camT == null ? "无主相机" : camT.position.y.ToString("F2") + "m")
+                   + (BadSample ? BadTag : ""));
+
+            int bodyParts = 0, bodyInCorridor = 0;
+            var shoeCenterSum = Vector3.zero; int shoeParts = 0;
+            var bodySb = new StringBuilder();
+            if (fpc != null)
+                foreach (var mr in fpc.GetComponentsInChildren<MeshRenderer>(true))
+                {
+                    if (System.Array.IndexOf(BodyPartNames, mr.name) < 0) continue;
+                    bodyParts++;
+                    if (mr.name.StartsWith("Shoe")) { shoeCenterSum += mr.bounds.center; shoeParts++; }
+                    bodySb.Append(" " + mr.name + " z=[" + mr.bounds.min.y.ToString("F2") + ","
+                                  + mr.bounds.max.y.ToString("F2") + "] x=[" + mr.bounds.min.x.ToString("F2")
+                                  + "," + mr.bounds.max.x.ToString("F2") + "] mat="
+                                  + (mr.sharedMaterial == null ? "null" : mr.sharedMaterial.name));
+                }
+            Assert(failures, bodyParts == (BadSample ? 99 : BodyPartNames.Length),
+                   "Player 子树里应有 " + BodyPartNames.Length + " 件腿脚（"
+                   + string.Join("/", BodyPartNames) + "），实际 " + bodyParts + (BadSample ? BadTag : ""));
+            if (inst != null)
+                foreach (var mr in inst.GetComponentsInChildren<MeshRenderer>(true))
+                    if (System.Array.IndexOf(BodyPartNames, mr.name) >= 0) bodyInCorridor++;
+            Assert(failures, bodyInCorridor == (BadSample ? 1 : 0),
+                   "身体件不该出现在 Corridor(Clone) 子树里（那是走廊的按名契约，不是解剖）"
+                   + (BadSample ? BadTag : "") + "，实际 " + bodyInCorridor);
+            Assert(failures, (fpc != null && fpc.leftLeg != null && fpc.rightLeg != null) != BadSample,
+                   "FPC 的 leftLeg/rightLeg 必须已绑定" + (BadSample ? BadTag : "") + "，实际 "
+                   + (fpc == null ? "无 FPC" : "left=" + (fpc.leftLeg == null ? "null" : fpc.leftLeg.name)
+                     + " right=" + (fpc.rightLeg == null ? "null" : fpc.rightLeg.name)));
+            // ⑥ 眼睛必须在鞋的"后上方"而不是正上方：腿柱若长在眼睛底下，低头到 pitchLimit
+            //    时视线先撞大腿截面，鞋整件被挡死（logs/shots9 的 08 帧＝两个圆饼）。
+            //    量的是水平前距：坏跑期望 <=0.10（那是 z=0 的旧装配实测 0.055），
+            //    好跑期望 >=0.25（相机退 0.30 后实测 ~0.355）——两侧都不是恒等式。
+            float shoeAhead = -999f, shoeDrop = -999f;
+            if (camT != null && shoeParts > 0)
+            {
+                Vector3 eyeFwd = fpc.transform.forward; eyeFwd.y = 0f;
+                if (eyeFwd.sqrMagnitude > 0.0001f) eyeFwd.Normalize();
+                Vector3 toShoe = shoeCenterSum / shoeParts - camT.position;
+                shoeAhead = Vector3.Dot(toShoe, eyeFwd);
+                shoeDrop = -toShoe.y;
+            }
+            float shoeLo = BadSample ? -999f : 0.25f, shoeHi = BadSample ? 0.10f : 999f;
+            Assert(failures, shoeAhead >= shoeLo && shoeAhead <= shoeHi,
+                   "鞋中心应在眼睛正前方水平 " + shoeLo.ToString("F2") + "~" + shoeHi.ToString("F2")
+                   + "m（太近＝腿柱挡死鞋，低头只看见两个大腿截面）" + (BadSample ? BadTag : "")
+                   + "，实际 " + shoeAhead.ToString("F3") + "m，垂角 "
+                   + (shoeAhead > 0.001f ? (Mathf.Atan2(shoeDrop, shoeAhead) * Mathf.Rad2Deg).ToString("F1") + "°" : "无法计算"));
+            Debug.Log("[VERIFY] 腿脚与身高:" + bodySb
+                      + " ; 眼睛世界 y=" + (camT == null ? "无" : camT.position.y.ToString("F2"))
+                      + " ; 鞋在眼前方 " + shoeAhead.ToString("F3") + "m/垂角 "
+                      + (shoeAhead > 0.001f ? (Mathf.Atan2(shoeDrop, shoeAhead) * Mathf.Rad2Deg).ToString("F1") : "n/a") + "°"
+                      + " ; 胶囊 height=" + (ccP == null ? "无" : ccP.height.ToString("F2"))
+                      + " radius=" + (ccP == null ? "无" : ccP.radius.ToString("F2"))
+                      + " center.y=" + (ccP == null ? "无" : ccP.center.y.ToString("F2"))
+                      + "（只有世界量是米，spec §9.2）");
+
             // HUD 渲染模式（spec §8 第 4 项裁定 ScreenSpaceCamera）
             var canvas = UnityEngine.Object.FindFirstObjectByType<Canvas>();
             Assert(failures, canvas != null, "场景里有 HUD Canvas");
@@ -1146,6 +1240,8 @@ namespace Dreamcore.EditorTools
                           + "）且 Tex 桶吃到贴图/法线/_NORMALMAP、Glass 桶真是透明"
                           + " + Floor world-scale tiling + " + texDirs.Count + " 张 NormalMap 导入器 + 异常语义色与渗水光泽"
                           + " + " + PropBaseNames.Length + " 件杂物走自身 UV（tiling 保持 1,1）"
+                          + " + 身高胶囊 center=半高与眼睛世界高度 + " + BodyPartNames.Length + " 件腿脚挂在 Player 下且不在走廊树里"
+                          + " + 鞋在眼前方有水平余量（低头看得见鞋而不是大腿截面）"
                           + " + HUD ScreenSpaceCamera + 梦核滤镜 5 道 override 与相机后处理开关"
                           + " + 音效三路接线与一路循环环境音）");
             else
