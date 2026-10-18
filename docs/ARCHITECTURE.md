@@ -179,10 +179,10 @@ flowchart TD
     HUD["Hud3D（ScreenSpaceCamera Canvas）"]
     VOL["GlobalVolume（VolumeProfile 5 项 override）"]
   end
-  HIDE -. "按名指认" .-> BASE
+  HIDE -. 按名指认 .-> BASE
   LOOP -- "Apply / Revert<br/>GameObject.SetActive" --> SHOW
   LOOP -- "Apply / Revert" --> BASE
-  LAMP -- "isDead" --> BASE
+  LAMP -- isDead --> BASE
   CAM --> BODY
   GATE -- "Report(bool)" --> LOOP
   LOOP -- "OnHudUpdate / OnEnd" --> HUD
@@ -216,16 +216,16 @@ stateDiagram-v2
   [*] --> Title
   Title --> Depth1: 点开始 / Enter / Space
   Depth1 --> Roll: 走到尽头门 或 走回起点门
-  Roll --> Clean: depth==1 强制干净<br/>或 命中 cleanChance<br/>或 目录已抽干
-  Roll --> Anomaly: 从未用过的异常中等概率抽一个<br/>Apply() + 本局移除
+  Roll --> Clean: depth 为 1 强制干净 / 命中 cleanChance / 目录已抽干
+  Roll --> Anomaly: 从未用过的异常中等概率抽一个并本局移除
   Clean --> Judge
   Anomaly --> Judge
-  Judge --> Next: (有异常 且 回头) 或 (干净 且 前进)
+  Judge --> Next: 有异常且回头，或干净且前进
   Judge --> Mistake: 反之
   Next --> Roll: depth+1
   Mistake --> Roll: mistakes+1
-  Next --> Win: depth >= 8
-  Mistake --> Lose: mistakes >= 3
+  Next --> Win: depth 达 maxDepth
+  Mistake --> Lose: mistakes 达 maxMistakes
   Win --> [*]
   Lose --> [*]
 ```
